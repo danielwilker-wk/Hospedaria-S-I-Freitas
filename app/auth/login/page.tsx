@@ -1,12 +1,9 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import Image from 'next/image'
 
 export default function LoginPage() {
-  const router = useRouter()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -26,8 +23,8 @@ export default function LoginPage() {
       return
     }
 
-    router.push('/dashboard')
-    router.refresh()
+    // Redirect directo sem usar o router do Next.js
+    window.location.href = '/dashboard'
   }
 
   return (
@@ -37,16 +34,9 @@ export default function LoginPage() {
         {/* Logo */}
         <div className="text-center mb-8">
           <div className="inline-flex flex-col items-center">
-            {/* Seta laranja — ícone SVG baseado no logo */}
-            <svg width="56" height="56" viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg" className="mb-3">
-              <rect width="56" height="56" rx="14" fill="#F05A00"/>
-              <path d="M28 10 L40 24 H33 V34 C33 38 30 40 27 40 C20 40 16 35 16 29 C16 22 21 18 27 18 V10 Z"
-                fill="white" opacity="0.15"/>
-              <text x="50%" y="54%" dominantBaseline="middle" textAnchor="middle"
-                fill="white" fontSize="16" fontWeight="700" fontFamily="Inter, sans-serif">
-                S&amp;I
-              </text>
-            </svg>
+            <div className="w-14 h-14 rounded-xl bg-brand-500 flex items-center justify-center mb-3">
+              <span className="text-white text-lg font-bold">S&I</span>
+            </div>
             <h1 className="text-lg font-bold text-ink tracking-tight">
               S&I – Freitas, Lda.
             </h1>

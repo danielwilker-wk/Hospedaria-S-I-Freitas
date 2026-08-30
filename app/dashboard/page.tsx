@@ -1,54 +1,80 @@
-import { createClient } from '@/lib/supabase/server'
-import { BedDouble, Users, TrendingUp, AlertTriangle } from 'lucide-react'
-import type { RoomOccupancy } from '@/types'
+'use client'
 
-const PROPERTY_ID = '00000000-0000-0000-0000-000000000001'
+import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { createClient } from '@/lib/supabase/client'
+import { BedDouble, TrendingUp } from 'lucide-react'
 
-const statusLabel: Record<string, string> = {
-  vago: 'Vago',
-  ocupado: 'Ocupado',
-  limpeza: 'Limpeza',
-  manutencao: 'Manutenção',
-}
+export default function DashboardPage() {
+  const router = useRouter()
+  const [loading, setLoading] = useState(true)
+  const [rooms, setRooms] = useState<any[]>([])
+  const [summary, setSummary] = useState<any>(null)
 
-export default async function DashboardPage() {
-  const supabase = createClient()
+  useEffect(() => {
+    const supabase = createClient()
 
-  // Ocupação actual via a vista criada no Supabase
-  const { data: rooms } = await supabase
-    .from('v_room_occupancy')
-    .select('*')
-    .returns<RoomOccupancy[]>()
+    async function load() {
+      // Verificar sessão
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) {
+        router.push('/auth/login')
+        return
+      }
 
-  // Resumo do dia anterior (o mais recente disponível)
-  const { data: summary } = await supabase
-    .from('daily_summaries')
-    .select('*')
-    .eq('property_id', PROPERTY_ID)
-    .order('summary_date', { ascending: false })
-    .limit(1)
-    .single()
+      // Carregar quartos
+      const { data: roomData } = await supabase
+        .from('v_room_occupancy')
+        .select('*')
 
-  const total = rooms?.length ?? 0
-  const ocupados = rooms?.filter(r => r.room_status === 'ocupado').length ?? 0
-  const vagos = rooms?.filter(r => r.room_status === 'vago').length ?? 0
-  const limpeza = rooms?.filter(r => r.room_status === 'limpeza').length ?? 0
-  const manutencao = rooms?.filter(r => r.room_status === 'manutencao').length ?? 0
+      // Carregar resumo mais recente
+      const { data: summaryData } = await supabase
+        .from('daily_summaries')
+        .select('*')
+        .eq('property_id', '00000000-0000-0000-0000-000000000001')
+        .order('summary_date', { ascending: false })
+        .limit(1)
+        .single()
+
+      setRooms(roomData ?? [])
+      setSummary(summaryData)
+      setLoading(false)
+    }
+
+    load()
+  }, [router])
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <p className="text-ink-muted text-sm">A carregar...</p>
+      </div>
+    )
+  }
+
+  const total = rooms.length
+  const ocupados = rooms.filter(r => r.room_status === 'ocupado').length
+  const vagos = rooms.filter(r => r.room_status === 'vago').length
+  const limpeza = rooms.filter(r => r.room_status === 'limpeza').length
+  const manutencao = rooms.filter(r => r.room_status === 'manutencao').length
   const ocupacao = total > 0 ? Math.round((ocupados / total) * 100) : 0
 
   const today = new Date().toLocaleDateString('pt-AO', {
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
   })
 
+  const statusLabel: Record<string, string> = {
+    vago: 'Vago', ocupado: 'Ocupado', limpeza: 'Limpeza', manutencao: 'Manutenção',
+  }
+
   return (
     <div className="max-w-5xl mx-auto space-y-6">
-      {/* Cabeçalho */}
       <div>
         <h1 className="text-xl font-semibold text-ink">Dashboard</h1>
         <p className="text-sm text-ink-muted capitalize">{today}</p>
       </div>
 
-      {/* Estatísticas de ocupação */}
+      {/* Estatísticas */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="card text-center">
           <div className="text-2xl font-bold text-brand-500">{ocupacao}%</div>
@@ -64,11 +90,11 @@ export default async function DashboardPage() {
         </div>
         <div className="card text-center">
           <div className="text-2xl font-bold text-yellow-500">{limpeza + manutencao}</div>
-          <div className="text-xs text-ink-muted mt-0.5">Em limpeza / manutenção</div>
+          <div className="text-xs text-ink-muted mt-0.5">Limpeza / Manutenção</div>
         </div>
       </div>
 
-      {/* Resumo financeiro do dia anterior */}
+      {/* Resumo financeiro */}
       {summary && (
         <div className="card space-y-3">
           <div className="flex items-center justify-between">
@@ -102,40 +128,34 @@ export default async function DashboardPage() {
               <p className="font-bold text-brand-500">{summary.total_revenue_overall.toLocaleString('pt-AO')} Kz</p>
             </div>
           </div>
-          <div className="text-xs text-ink-light border-t border-surface-border pt-2">
-            {summary.total_checkins} check-in(s) · {summary.total_checkouts} check-out(s)
-          </div>
         </div>
       )}
 
-      {/* Grelha de quartos */}
+      {/* Mapa de quartos */}
       <div className="card">
         <h2 className="text-sm font-semibold text-ink mb-4 flex items-center gap-2">
           <BedDouble size={15} className="text-brand-500" />
           Mapa de quartos
         </h2>
         <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2">
-          {rooms?.sort((a, b) => Number(a.room_number) - Number(b.room_number))
+          {rooms
+            .sort((a, b) => Number(a.room_number) - Number(b.room_number))
             .map(room => (
               <div
                 key={room.room_number}
                 title={`${room.room_type}${room.guest_name ? ` — ${room.guest_name}` : ''}`}
-                className={`rounded p-2 text-center cursor-default select-none border transition-colors ${
-                  room.room_status === 'vago'
-                    ? 'bg-green-50 border-green-200 text-green-700'
-                    : room.room_status === 'ocupado'
-                    ? 'bg-red-50 border-red-200 text-red-700'
-                    : room.room_status === 'limpeza'
-                    ? 'bg-yellow-50 border-yellow-200 text-yellow-700'
-                    : 'bg-indigo-50 border-indigo-200 text-indigo-700'
+                className={`rounded p-2 text-center border ${
+                  room.room_status === 'vago' ? 'bg-green-50 border-green-200 text-green-700' :
+                  room.room_status === 'ocupado' ? 'bg-red-50 border-red-200 text-red-700' :
+                  room.room_status === 'limpeza' ? 'bg-yellow-50 border-yellow-200 text-yellow-700' :
+                  'bg-indigo-50 border-indigo-200 text-indigo-700'
                 }`}
               >
                 <div className="text-sm font-bold">{room.room_number}</div>
-                <div className="text-xs truncate">{statusLabel[room.room_status]}</div>
+                <div className="text-xs">{statusLabel[room.room_status]}</div>
               </div>
             ))}
         </div>
-        {/* Legenda */}
         <div className="flex flex-wrap gap-3 mt-4 text-xs text-ink-muted">
           <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-green-400 inline-block"/> Vago</span>
           <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-red-400 inline-block"/> Ocupado</span>

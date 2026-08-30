@@ -12,35 +12,31 @@ export async function middleware(request: NextRequest) {
         getAll() {
           return request.cookies.getAll()
         },
-        setAll(cookiesToSet) {
+        setAll(cookiesToSet: { name: string; value: string; options?: Record<string, unknown> }[]) {
           cookiesToSet.forEach(({ name, value }) =>
             request.cookies.set(name, value)
           )
           supabaseResponse = NextResponse.next({ request })
           cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options)
+            supabaseResponse.cookies.set(name, value, options as Parameters<typeof supabaseResponse.cookies.set>[2])
           )
         },
       },
     }
   )
 
-  // Atualiza a sessão (obrigatório para o @supabase/ssr)
   const { data: { user } } = await supabase.auth.getUser()
 
   const { pathname } = request.nextUrl
 
-  // Rotas públicas — não precisam de sessão
   const publicRoutes = ['/auth/login']
   if (publicRoutes.includes(pathname)) {
-    // Se já tem sessão, redireciona para o dashboard
     if (user) {
       return NextResponse.redirect(new URL('/dashboard', request.url))
     }
     return supabaseResponse
   }
 
-  // Todas as outras rotas precisam de sessão
   if (!user) {
     return NextResponse.redirect(new URL('/auth/login', request.url))
   }

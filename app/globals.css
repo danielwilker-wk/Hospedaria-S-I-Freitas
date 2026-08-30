@@ -1,0 +1,62 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-surface-muted text-ink font-sans antialiased;
+  }
+  * {
+    @apply border-surface-border;
+  }
+}
+
+@layer components {
+  /* Botões */
+  .btn-primary {
+    @apply bg-brand-500 hover:bg-brand-600 active:bg-brand-700 text-white font-semibold
+           px-4 py-2 rounded transition-colors duration-150
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-secondary {
+    @apply bg-surface border border-surface-border hover:bg-surface-muted
+           text-ink font-medium px-4 py-2 rounded transition-colors duration-150;
+  }
+  .btn-ghost {
+    @apply hover:bg-surface-muted text-ink-muted font-medium px-3 py-2 rounded transition-colors duration-150;
+  }
+  .btn-danger {
+    @apply bg-red-500 hover:bg-red-600 text-white font-medium px-4 py-2 rounded transition-colors duration-150;
+  }
+
+  /* Inputs */
+  .input {
+    @apply w-full border border-surface-border rounded px-3 py-2 text-sm text-ink bg-surface
+           focus:outline-none focus:ring-2 focus:ring-brand-400 focus:border-transparent
+           placeholder:text-ink-light transition;
+  }
+  .label {
+    @apply block text-xs font-semibold text-ink-muted mb-1 uppercase tracking-wide;
+  }
+
+  /* Card */
+  .card {
+    @apply bg-surface border border-surface-border rounded-lg p-4 shadow-sm;
+  }
+
+  /* Badges de status do quarto */
+  .badge-vago       { @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-green-100 text-green-700; }
+  .badge-ocupado    { @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-red-100 text-red-700; }
+  .badge-limpeza    { @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-yellow-100 text-yellow-700; }
+  .badge-manutencao { @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-indigo-100 text-indigo-700; }
+  .badge-rascunho   { @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-yellow-100 text-yellow-700; }
+  .badge-revisto    { @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-blue-100 text-blue-700; }
+  .badge-enviado    { @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-green-100 text-green-700; }
+
+  /* Divisor de secção */
+  .section-title {
+    @apply text-xs font-bold text-ink-muted uppercase tracking-widest mb-3;
+  }
+}

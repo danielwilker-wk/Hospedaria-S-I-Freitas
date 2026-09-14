@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { LogIn, CheckCircle, Search, UserPlus } from 'lucide-react'
@@ -9,6 +9,14 @@ import type { Guest } from '@/types'
 const PROPERTY_ID = '00000000-0000-0000-0000-000000000001'
 
 export default function CheckInPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center h-64"><p className="text-ink-muted text-sm">A carregar...</p></div>}>
+      <CheckInPageInner />
+    </Suspense>
+  )
+}
+
+function CheckInPageInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
 

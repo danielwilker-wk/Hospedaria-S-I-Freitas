@@ -1,0 +1,166 @@
+'use client'
+
+import { useEffect, useState } from 'react'
+import { createClient } from '@/lib/supabase/client'
+import { Wine, Plus, ArrowDownCircle, ArrowUpCircle } from 'lucide-react'
+import type { BarProduct } from '@/types'
+
+const PROPERTY_ID = '00000000-0000-0000-0000-000000000001'
+
+export default function BarStockPage() {
+  const [staffId, setStaffId] = useState('')
+  const [products, setProducts] = useState<BarProduct[]>([])
+  const [loading, setLoading] = useState(true)
+
+  const [newProduct, setNewProduct] = useState({ name: '', unit: 'unidade', price: '', stock_quantity: '0' })
+  const [savingProduct, setSavingProduct] = useState(false)
+
+  const [movementProductId, setMovementProductId] = useState('')
+  const [movementType, setMovementType] = useState<'entrada' | 'saida'>('entrada')
+  const [movementQty, setMovementQty] = useState('')
+  const [movementReason, setMovementReason] = useState('')
+  const [savingMovement, setSavingMovement] = useState(false)
+
+  async function load() {
+    const supabase = createClient()
+    const { data } = await supabase
+      .from('bar_products')
+      .select('*')
+      .eq('property_id', PROPERTY_ID)
+      .order('name')
+    setProducts(data ?? [])
+    setLoading(false)
+  }
+
+  useEffect(() => {
+    const supabase = createClient()
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) setStaffId(session.user.id)
+    })
+    load()
+  }, [])
+
+  async function addProduct(e: React.FormEvent) {
+    e.preventDefault()
+    if (!newProduct.name || !newProduct.price) return
+    setSavingProduct(true)
+    const supabase = createClient()
+    const { error } = await supabase.from('bar_products').insert({
+      property_id: PROPERTY_ID,
+      name: newProduct.name,
+      unit: newProduct.unit,
+      price: Number(newProduct.price),
+      stock_quantity: Number(newProduct.stock_quantity),
+    })
+    if (error) { alert('Erro: ' + error.message); setSavingProduct(false); return }
+    setNewProduct({ name: '', unit: 'unidade', price: '', stock_quantity: '0' })
+    setSavingProduct(false)
+    load()
+  }
+
+  async function registerMovement(e: React.FormEvent) {
+    e.preventDefault()
+    if (!movementProductId || !movementQty) return
+    setSavingMovement(true)
+    const supabase = createClient()
+    const product = products.find(p => p.id === movementProductId)
+    if (!product) { setSavingMovement(false); return }
+
+    const qty = Number(movementQty)
+    const newStock = movementType === 'entrada' ? product.stock_quantity + qty : product.stock_quantity - qty
+
+    if (newStock < 0) {
+      alert('Não é possível retirar mais do que o stock atual.')
+      setSavingMovement(false)
+      return
+    }
+
+    const { error: movError } = await supabase.from('bar_stock_movements').insert({
+      property_id: PROPERTY_ID,
+      product_id: movementProductId,
+      movement_type: movementType,
+      quantity: qty,
+      reason: movementReason || null,
+      recorded_by: staffId,
+    })
+    if (movError) { alert('Erro: ' + movError.message); setSavingMovement(false); return }
+
+    await supabase.from('bar_products').update({ stock_quantity: newStock }).eq('id', movementProductId)
+
+    setMovementProductId('')
+    setMovementQty('')
+    setMovementReason('')
+    setSavingMovement(false)
+    load()
+  }
+
+  return (
+    <div className="max-w-2xl mx-auto space-y-6">
+      <div>
+        <h1 className="text-xl font-semibold text-ink flex items-center gap-2">
+          <Wine size={20} className="text-brand-500" /> Bar — Produtos e Stock
+        </h1>
+        <p className="text-sm text-ink-muted mt-0.5">Gerir produtos, preços e movimentos de stock</p>
+      </div>
+
+      <form onSubmit={addProduct} className="card space-y-3">
+        <h2 className="text-xs font-bold text-ink-muted uppercase tracking-wide">Adicionar produto</h2>
+        <div className="grid grid-cols-4 gap-3">
+          <input type="text" className="input col-span-2" placeholder="Nome" required value={newProduct.name} onChange={e => setNewProduct(p => ({ ...p, name: e.target.value }))} />
+          <input type="text" className="input" placeholder="Unidade" value={newProduct.unit} onChange={e => setNewProduct(p => ({ ...p, unit: e.target.value }))} />
+          <input type="number" className="input" placeholder="Preço (Kz)" required min="0" value={newProduct.price} onChange={e => setNewProduct(p => ({ ...p, price: e.target.value }))} />
+        </div>
+        <input type="number" className="input" placeholder="Stock inicial" min="0" value={newProduct.stock_quantity} onChange={e => setNewProduct(p => ({ ...p, stock_quantity: e.target.value }))} />
+        <button type="submit" disabled={savingProduct} className="btn-primary flex items-center gap-2 px-5 py-2">
+          <Plus size={16} /> {savingProduct ? 'A adicionar...' : 'Adicionar Produto'}
+        </button>
+      </form>
+
+      <form onSubmit={registerMovement} className="card space-y-3">
+        <h2 className="text-xs font-bold text-ink-muted uppercase tracking-wide">Registar entrada / saída</h2>
+        <select className="input" value={movementProductId} onChange={e => setMovementProductId(e.target.value)}>
+          <option value="">Seleccionar produto</option>
+          {products.map(p => (
+            <option key={p.id} value={p.id}>{p.name} (stock: {p.stock_quantity})</option>
+          ))}
+        </select>
+        <div className="flex gap-2">
+          <button type="button" onClick={() => setMovementType('entrada')} className={`flex-1 py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-1.5 ${movementType === 'entrada' ? 'bg-green-100 text-green-700' : 'bg-surface-muted text-ink-muted'}`}>
+            <ArrowDownCircle size={14}/> Entrada
+          </button>
+          <button type="button" onClick={() => setMovementType('saida')} className={`flex-1 py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-1.5 ${movementType === 'saida' ? 'bg-red-100 text-red-700' : 'bg-surface-muted text-ink-muted'}`}>
+            <ArrowUpCircle size={14}/> Saída
+          </button>
+        </div>
+        <input type="number" className="input" placeholder="Quantidade" min="1" value={movementQty} onChange={e => setMovementQty(e.target.value)} />
+        <input type="text" className="input" placeholder="Motivo (ex: compra, quebra, ajuste)" value={movementReason} onChange={e => setMovementReason(e.target.value)} />
+        <button type="submit" disabled={savingMovement || !movementProductId} className="btn-primary w-full py-2.5">
+          {savingMovement ? 'A registar...' : 'Registar Movimento'}
+        </button>
+      </form>
+
+      <div className="card space-y-2">
+        <h2 className="text-xs font-bold text-ink-muted uppercase tracking-wide">Stock atual</h2>
+        {loading ? (
+          <p className="text-sm text-ink-muted text-center py-4">A carregar...</p>
+        ) : products.length === 0 ? (
+          <p className="text-sm text-ink-muted text-center py-4">Ainda não há produtos.</p>
+        ) : (
+          <div className="divide-y divide-border">
+            {products.map(p => (
+              <div key={p.id} className="py-2.5 flex items-center justify-between text-sm">
+                <div>
+                  <p className="font-medium text-ink">{p.name}</p>
+                  <p className="text-xs text-ink-muted">{Number(p.price).toLocaleString('pt-AO')} Kz / {p.unit}</p>
+                </div>
+                <span className={`font-semibold px-2.5 py-1 rounded-full text-xs ${p.stock_quantity <= 5 ? 'bg-red-50 text-red-600' : 'bg-surface-muted text-ink'}`}>
+                  {p.stock_quantity} {p.unit}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}

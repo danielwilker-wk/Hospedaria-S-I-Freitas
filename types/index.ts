@@ -13,6 +13,7 @@ export type SummaryStatus = 'rascunho' | 'revisto' | 'enviado'
 export type DocumentoTipo = 'bi' | 'passaporte'
 export type ShiftPeriod = 'manha' | 'noite'
 export type MaintenanceStatus = 'pendente' | 'em_progresso' | 'resolvido'
+export type BillingType = 'proprio' | 'empresa'
 
 export interface Property {
   id: string
@@ -83,6 +84,8 @@ export interface Stay {
   room_value: number
   amount_paid_reservation: number
   amount_due: number
+  billed_to: BillingType
+  company_name?: string
   status: StayStatus
   checked_in_by: string
   checked_out_verified_by?: string

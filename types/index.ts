@@ -14,6 +14,8 @@ export type DocumentoTipo = 'bi' | 'passaporte'
 export type ShiftPeriod = 'manha' | 'noite'
 export type MaintenanceStatus = 'pendente' | 'em_progresso' | 'resolvido'
 export type BillingType = 'proprio' | 'empresa'
+export type GuestType = 'hospede' | 'nao_hospede'
+export type StockMovementType = 'entrada' | 'saida'
 
 export interface Property {
   id: string
@@ -149,6 +151,86 @@ export interface DailySummary {
   sent_at?: string
   status: SummaryStatus
   notes?: string
+}
+
+export interface MenuItem {
+  id: string
+  property_id: string
+  name: string
+  price: number
+  category?: string
+  active: boolean
+  created_at: string
+}
+
+export interface RestaurantSale {
+  id: string
+  property_id: string
+  record_date: string
+  guest_type: GuestType
+  stay_id?: string
+  guest_name?: string
+  invoice_number?: string
+  value: number
+  amount_received?: number
+  change_given?: number
+  payment_method?: PaymentMethod
+  recorded_by: string
+  created_at: string
+}
+
+export interface RestaurantSaleItem {
+  id: string
+  sale_id: string
+  menu_item_id: string
+  quantity: number
+  unit_price: number
+  subtotal: number
+}
+
+export interface BarProduct {
+  id: string
+  property_id: string
+  name: string
+  unit: string
+  price: number
+  stock_quantity: number
+  active: boolean
+  created_at: string
+}
+
+export interface BarStockMovement {
+  id: string
+  property_id: string
+  product_id: string
+  movement_type: StockMovementType
+  quantity: number
+  reason?: string
+  recorded_by: string
+  occurred_at: string
+}
+
+export interface BarSale {
+  id: string
+  property_id: string
+  record_date: string
+  guest_type: GuestType
+  stay_id?: string
+  guest_name?: string
+  amount_received?: number
+  change_given?: number
+  payment_method?: PaymentMethod
+  recorded_by: string
+  created_at: string
+}
+
+export interface BarSaleItem {
+  id: string
+  sale_id: string
+  product_id: string
+  quantity: number
+  unit_price: number
+  subtotal: number
 }
 
 // Vista v_room_occupancy

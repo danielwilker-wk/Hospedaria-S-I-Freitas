@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { LogOut, Search, CheckCircle, Wallet, ShirtIcon, UtensilsCrossed, Wine } from 'lucide-react'
+import { LogOut, Search, CheckCircle, Wallet, ShirtIcon, UtensilsCrossed, Wine, FileDown } from 'lucide-react'
+import jsPDF from 'jspdf'
 
 const PROPERTY_ID = '00000000-0000-0000-0000-000000000001'
 
@@ -170,6 +171,58 @@ export default function CheckOutPage() {
     setSavingPayment(false)
   }
 
+  async function gerarEGuardarDocumento() {
+    if (!stay) return
+    const supabase = createClient()
+    const now = new Date()
+
+    const doc = new jsPDF()
+    let y = 20
+    doc.setFontSize(16)
+    doc.text('Hospedaria S&I Freitas', 14, y); y += 8
+    doc.setFontSize(11)
+    doc.text('Documento de Check-in / Check-out', 14, y); y += 10
+    doc.setFontSize(10)
+    doc.text(`Hóspede: ${stay.guests?.full_name} ${stay.guests?.surname ?? ''}`, 14, y); y += 6
+    doc.text(`Documento: ${stay.guests?.document_number ?? '—'}`, 14, y); y += 6
+    doc.text(`Quarto: ${stay.rooms?.number} — ${stay.rooms?.room_types?.name}`, 14, y); y += 6
+    doc.text(`Check-in: ${new Date(stay.check_in_at).toLocaleString('pt-PT')}`, 14, y); y += 6
+    doc.text(`Check-out: ${now.toLocaleString('pt-PT')}`, 14, y); y += 10
+
+    doc.setFontSize(11)
+    doc.text('Resumo da conta', 14, y); y += 7
+    doc.setFontSize(10)
+    doc.text(`Hospedagem: ${Number(stay.room_value).toLocaleString('pt-AO')} Kz`, 14, y); y += 6
+    doc.text(`Lavandaria: ${laundryTotal.toLocaleString('pt-AO')} Kz`, 14, y); y += 6
+    doc.text(`Restaurante: ${restaurantTotal.toLocaleString('pt-AO')} Kz`, 14, y); y += 6
+    doc.text(`Frigobar: ${minibarTotal.toLocaleString('pt-AO')} Kz`, 14, y); y += 6
+    doc.text(`Subtotal: ${subtotal.toLocaleString('pt-AO')} Kz`, 14, y); y += 10
+    doc.text(`Total pago: ${totalPaid.toLocaleString('pt-AO')} Kz`, 14, y); y += 6
+    doc.text(`Saldo pendente: ${saldoPendente.toLocaleString('pt-AO')} Kz`, 14, y); y += 6
+    if (stay.billed_to === 'empresa') {
+      doc.text(`Facturação: a crédito — ${stay.company_name || 'empresa não especificada'}`, 14, y); y += 6
+    }
+
+    const blob = doc.output('blob')
+    const path = `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}/${stay.id}.pdf`
+
+    const { error: uploadError } = await supabase.storage
+      .from('checkout-docs')
+      .upload(path, blob, { contentType: 'application/pdf', upsert: true })
+
+    if (uploadError) {
+      console.error('Erro ao guardar PDF:', uploadError.message)
+      return
+    }
+
+    await supabase.from('checkout_documents').upsert({
+      property_id: PROPERTY_ID,
+      stay_id: stay.id,
+      pdf_url: path,
+      generated_at: now.toISOString(),
+    }, { onConflict: 'stay_id' })
+  }
+
   async function finalizarHospedagem() {
     if (!stay) return
     setFinalizing(true)
@@ -185,6 +238,10 @@ export default function CheckOutPage() {
       .eq('id', stay.id)
 
     if (error) { alert('Erro ao finalizar check-out: ' + error.message); setFinalizing(false); return }
+
+    // Gera e guarda o documento de check-in + check-out no arquivo
+    await gerarEGuardarDocumento()
+
     // O trigger da base de dados já move o quarto automaticamente para "limpeza"
     setDone(true)
     setFinalizing(false)
@@ -198,6 +255,9 @@ export default function CheckOutPage() {
           <CheckCircle size={22} />
           <span className="font-semibold text-lg">Check-out finalizado — quarto enviado para limpeza.</span>
         </div>
+        <p className="text-xs text-ink-muted text-center mt-3 flex items-center justify-center gap-1.5">
+          <FileDown size={13}/> Documento guardado no Arquivo Check-out
+        </p>
       </div>
     )
   }

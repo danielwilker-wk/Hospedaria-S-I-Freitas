@@ -149,7 +149,9 @@ export default function CheckOutPage() {
     )
   }
 
-  const subtotal = Number(stay.room_value) + laundryTotal + restaurantTotal + minibarTotal
+  const nights = Math.max(1, Math.ceil((Date.now() - new Date(stay.check_in_at).getTime()) / (1000 * 60 * 60 * 24)))
+  const roomTotal = Number(stay.room_value) * nights
+  const subtotal = roomTotal + laundryTotal + restaurantTotal + minibarTotal
   const totalPaid = Number(stay.amount_paid_reservation) + paymentsMade
   const saldoPendente = subtotal - totalPaid
 
@@ -192,7 +194,7 @@ export default function CheckOutPage() {
     doc.setFontSize(11)
     doc.text('Resumo da conta', 14, y); y += 7
     doc.setFontSize(10)
-    doc.text(`Hospedagem: ${Number(stay.room_value).toLocaleString('pt-AO')} Kz`, 14, y); y += 6
+    doc.text(`Hospedagem (${nights} ${nights === 1 ? 'noite' : 'noites'} x ${Number(stay.room_value).toLocaleString('pt-AO')} Kz): ${roomTotal.toLocaleString('pt-AO')} Kz`, 14, y); y += 6
     doc.text(`Lavandaria: ${laundryTotal.toLocaleString('pt-AO')} Kz`, 14, y); y += 6
     doc.text(`Restaurante: ${restaurantTotal.toLocaleString('pt-AO')} Kz`, 14, y); y += 6
     doc.text(`Frigobar: ${minibarTotal.toLocaleString('pt-AO')} Kz`, 14, y); y += 6
@@ -283,7 +285,7 @@ export default function CheckOutPage() {
           <div className="card space-y-3">
             <h2 className="text-xs font-bold text-ink-muted uppercase tracking-wide">Resumo da conta</h2>
             <div className="space-y-2 text-sm">
-              <div className="flex justify-between"><span className="text-ink-muted">Hospedagem</span><span className="font-medium">{Number(stay.room_value).toLocaleString('pt-AO')} Kz</span></div>
+              <div className="flex justify-between"><span className="text-ink-muted">Hospedagem ({nights} {nights === 1 ? 'noite' : 'noites'} × {Number(stay.room_value).toLocaleString('pt-AO')} Kz)</span><span className="font-medium">{roomTotal.toLocaleString('pt-AO')} Kz</span></div>
               <div className="flex justify-between items-center"><span className="text-ink-muted flex items-center gap-1.5"><ShirtIcon size={13}/> Lavandaria</span><span className="font-medium">{laundryTotal.toLocaleString('pt-AO')} Kz</span></div>
               <div className="flex justify-between items-center"><span className="text-ink-muted flex items-center gap-1.5"><UtensilsCrossed size={13}/> Restaurante</span><span className="font-medium">{restaurantTotal.toLocaleString('pt-AO')} Kz</span></div>
               <div className="flex justify-between items-center"><span className="text-ink-muted flex items-center gap-1.5"><Wine size={13}/> Frigobar</span><span className="font-medium">{minibarTotal.toLocaleString('pt-AO')} Kz</span></div>

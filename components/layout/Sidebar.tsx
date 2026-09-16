@@ -17,6 +17,7 @@ import {
   Wrench,
   FileText,
   Archive,
+  BarChart3,
   ChevronDown,
   LogOut,
 } from 'lucide-react'
@@ -53,11 +54,13 @@ const nav: NavItem[] = [
       { href: '/sala-refeicoes/restaurante', label: 'Restaurante', icon: UtensilsCrossed },
       { href: '/sala-refeicoes/bar', label: 'Bar', icon: Wine },
       { href: '/sala-refeicoes/bar/stock', label: 'Stock do Bar', icon: Package },
+      { href: '/frigobar/produtos', label: 'Frigobar', icon: Package },
     ],
   },
   { href: '/limpeza', label: 'Limpeza', icon: Sparkles },
   { href: '/manutencao', label: 'Manutenção', icon: Wrench },
   { href: '/relatorio', label: 'Relatório Diário', icon: FileText },
+  { href: '/relatorio-mensal', label: 'Relatório Mensal', icon: BarChart3 },
   { href: '/arquivo-checkout', label: 'Arquivo Check-out', icon: Archive },
 ]
 

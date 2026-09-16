@@ -322,7 +322,7 @@ export default function CheckOutPage() {
     // O trigger da base de dados já move o quarto automaticamente para "limpeza"
     setDone(true)
     setFinalizing(false)
-    setTimeout(() => router.push('/mapa-quartos'), 1800)
+    setTimeout(() => router.push('/quartos'), 1800)
   }
 
   if (done) {

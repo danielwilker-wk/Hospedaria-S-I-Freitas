@@ -61,6 +61,8 @@ export default function CheckOutPage() {
   const [newPaymentMethod, setNewPaymentMethod] = useState('numerario')
   const [newPaymentSource, setNewPaymentSource] = useState('stay')
   const [savingPayment, setSavingPayment] = useState(false)
+  const [settleMethod, setSettleMethod] = useState('numerario')
+  const [settling, setSettling] = useState(false)
 
   const [staffId, setStaffId] = useState('')
   const [finalizing, setFinalizing] = useState(false)
@@ -300,8 +302,32 @@ export default function CheckOutPage() {
     }, { onConflict: 'stay_id' })
   }
 
+  async function liquidarSaldo() {
+    if (!stay || saldoPendente <= 0) return
+    setSettling(true)
+    const supabase = createClient()
+    const { data, error } = await supabase.from('payments').insert({
+      property_id: PROPERTY_ID,
+      source_type: 'stay',
+      source_id: stay.id,
+      amount: saldoPendente,
+      method: settleMethod,
+      recorded_by: staffId,
+    }).select().single()
+    if (error) { alert('Erro ao registar pagamento: ' + error.message); setSettling(false); return }
+    setPaymentsList(prev => [data, ...prev])
+    setPaymentsMade(prev => prev + saldoPendente)
+    setSettling(false)
+  }
+
   async function finalizarHospedagem() {
     if (!stay) return
+    if (saldoPendente > 0) {
+      const ok = confirm(
+        `Ainda há um saldo pendente de ${saldoPendente.toLocaleString('pt-AO')} Kz.\n\nFinalizar mesmo assim? O valor ficará registado como dívida.`
+      )
+      if (!ok) return
+    }
     setFinalizing(true)
     const supabase = createClient()
     const { error } = await supabase
@@ -459,7 +485,28 @@ export default function CheckOutPage() {
               </span>
             </div>
             {saldoPendente > 0 && (
-              <p className="text-xs text-amber-700 mt-1">Ainda há um valor em falta antes de finalizar.</p>
+              <div className="mt-3 pt-3 border-t border-amber-200 space-y-2">
+                <p className="text-xs text-amber-800">Registar o pagamento deste saldo:</p>
+                <div className="flex gap-2">
+                  <select
+                    className="input flex-1"
+                    value={settleMethod}
+                    onChange={e => setSettleMethod(e.target.value)}
+                  >
+                    <option value="numerario">Numerário</option>
+                    <option value="tpa">TPA</option>
+                    <option value="transferencia">Transferência</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={liquidarSaldo}
+                    disabled={settling}
+                    className="btn-primary px-5 whitespace-nowrap"
+                  >
+                    {settling ? 'A registar...' : `Pagar ${saldoPendente.toLocaleString('pt-AO')} Kz`}
+                  </button>
+                </div>
+              </div>
             )}
           </div>
 

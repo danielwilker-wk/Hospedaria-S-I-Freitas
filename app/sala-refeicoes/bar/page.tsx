@@ -17,6 +17,8 @@ type ActiveStayOption = {
 
 export default function BarVendaPage() {
   const [staffId, setStaffId] = useState('')
+  const [staffList, setStaffList] = useState<{ id: string; full_name: string }[]>([])
+  const [attendantId, setAttendantId] = useState('')
   const [products, setProducts] = useState<BarProduct[]>([])
   const [cart, setCart] = useState<CartItem[]>([])
 
@@ -48,6 +50,13 @@ export default function BarVendaPage() {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) setStaffId(session.user.id)
     })
+    supabase
+      .from('staff')
+      .select('id, full_name')
+      .eq('property_id', PROPERTY_ID)
+      .eq('active', true)
+      .order('full_name')
+      .then(({ data }) => setStaffList(data ?? []))
     loadProducts()
   }, [])
 
@@ -96,6 +105,7 @@ export default function BarVendaPage() {
   const payingNow = guestType === 'nao_hospede' || paymentTiming === 'agora'
 
   const canFinalize = cart.length > 0 &&
+    !!attendantId &&
     (guestType === 'nao_hospede' ? true : !!selectedStay) &&
     (payingNow ? Number(amountReceived) >= total : true)
 
@@ -113,7 +123,7 @@ export default function BarVendaPage() {
         amount_received: payingNow ? Number(amountReceived) : null,
         change_given: payingNow ? troco : null,
         payment_method: payingNow ? paymentMethod : null,
-        recorded_by: staffId,
+        recorded_by: attendantId,
       })
       .select()
       .single()
@@ -137,7 +147,7 @@ export default function BarVendaPage() {
         movement_type: 'saida',
         quantity: c.quantity,
         reason: 'venda',
-        recorded_by: staffId,
+        recorded_by: attendantId,
       })
       await supabase
         .from('bar_products')
@@ -154,7 +164,7 @@ export default function BarVendaPage() {
         source_id: selectedStay.id,
         amount: total,
         method: paymentMethod,
-        recorded_by: staffId,
+        recorded_by: attendantId,
       })
     }
 
@@ -167,6 +177,7 @@ export default function BarVendaPage() {
       setGuestName('')
       setAmountReceived('')
       setPaymentTiming('debitar')
+      setAttendantId('')
       setSuccess(false)
       loadProducts()
     }, 1800)
@@ -212,6 +223,16 @@ export default function BarVendaPage() {
 
       {/* Carrinho / Checkout */}
       <div className="space-y-4">
+        <div className="card space-y-2">
+          <h2 className="text-xs font-bold text-ink-muted uppercase tracking-wide">Quem está a atender?</h2>
+          <select className="input" value={attendantId} onChange={e => setAttendantId(e.target.value)}>
+            <option value="">Seleccionar funcionário</option>
+            {staffList.map(s => (
+              <option key={s.id} value={s.id}>{s.full_name}</option>
+            ))}
+          </select>
+        </div>
+
         <div className="card space-y-3">
           <h2 className="text-xs font-bold text-ink-muted uppercase tracking-wide">Cliente</h2>
           <div className="flex gap-2">

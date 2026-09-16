@@ -28,6 +28,7 @@ export default function RestauranteVendaPage() {
 
   const [amountReceived, setAmountReceived] = useState('')
   const [paymentMethod, setPaymentMethod] = useState('numerario')
+  const [paymentTiming, setPaymentTiming] = useState<'debitar' | 'agora'>('debitar')
   const [saving, setSaving] = useState(false)
   const [success, setSuccess] = useState(false)
 
@@ -83,9 +84,11 @@ export default function RestauranteVendaPage() {
   const total = cart.reduce((sum, c) => sum + c.menuItem.price * c.quantity, 0)
   const troco = amountReceived ? Number(amountReceived) - total : 0
 
+  const payingNow = guestType === 'nao_hospede' || paymentTiming === 'agora'
+
   const canFinalize = cart.length > 0 &&
     (guestType === 'nao_hospede' ? true : !!selectedStay) &&
-    Number(amountReceived) >= total
+    (payingNow ? Number(amountReceived) >= total : true)
 
   async function finalizeSale() {
     setSaving(true)
@@ -99,9 +102,9 @@ export default function RestauranteVendaPage() {
         stay_id: guestType === 'hospede' ? selectedStay?.id : null,
         guest_name: guestType === 'nao_hospede' ? (guestName || null) : null,
         value: total,
-        amount_received: Number(amountReceived),
-        change_given: troco,
-        payment_method: paymentMethod,
+        amount_received: payingNow ? Number(amountReceived) : null,
+        change_given: payingNow ? troco : null,
+        payment_method: payingNow ? paymentMethod : null,
         recorded_by: staffId,
       })
       .select()
@@ -118,6 +121,19 @@ export default function RestauranteVendaPage() {
     const { error: itemsError } = await supabase.from('restaurant_sale_items').insert(items)
     if (itemsError) { alert('Venda registada mas houve erro nos itens: ' + itemsError.message) }
 
+    // Se o hóspede pagou logo (em vez de debitar na conta), regista o pagamento
+    // para não ser cobrado outra vez no check-out.
+    if (guestType === 'hospede' && paymentTiming === 'agora' && selectedStay) {
+      await supabase.from('payments').insert({
+        property_id: PROPERTY_ID,
+        source_type: 'restaurant',
+        source_id: selectedStay.id,
+        amount: total,
+        method: paymentMethod,
+        recorded_by: staffId,
+      })
+    }
+
     setSuccess(true)
     setSaving(false)
     setTimeout(() => {
@@ -126,6 +142,7 @@ export default function RestauranteVendaPage() {
       setStaySearch('')
       setGuestName('')
       setAmountReceived('')
+      setPaymentTiming('debitar')
       setSuccess(false)
     }, 1800)
   }
@@ -240,17 +257,41 @@ export default function RestauranteVendaPage() {
 
         <div className="card space-y-3">
           <h2 className="text-xs font-bold text-ink-muted uppercase tracking-wide">Pagamento</h2>
-          <select className="input" value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)}>
-            <option value="numerario">Numerário</option>
-            <option value="tpa">TPA</option>
-            <option value="transferencia">Transferência</option>
-          </select>
-          <input type="number" min="0" className="input" placeholder="Valor entregue (Kz)" value={amountReceived} onChange={e => setAmountReceived(e.target.value)} />
-          {amountReceived && Number(amountReceived) >= total && (
-            <div className="flex justify-between text-sm bg-surface-muted rounded-lg p-2.5">
-              <span className="text-ink-muted">Troco</span>
-              <span className="font-bold text-brand-500">{troco.toLocaleString('pt-AO')} Kz</span>
+          {guestType === 'hospede' && selectedStay && (
+            <div className="flex gap-2">
+              <button
+                onClick={() => setPaymentTiming('debitar')}
+                className={`flex-1 py-1.5 rounded-lg text-xs font-medium ${paymentTiming === 'debitar' ? 'bg-brand-500 text-white' : 'bg-surface-muted text-ink-muted'}`}
+              >
+                Debitar na conta
+              </button>
+              <button
+                onClick={() => setPaymentTiming('agora')}
+                className={`flex-1 py-1.5 rounded-lg text-xs font-medium ${paymentTiming === 'agora' ? 'bg-brand-500 text-white' : 'bg-surface-muted text-ink-muted'}`}
+              >
+                Pago agora
+              </button>
             </div>
+          )}
+          {payingNow ? (
+            <>
+              <select className="input" value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)}>
+                <option value="numerario">Numerário</option>
+                <option value="tpa">TPA</option>
+                <option value="transferencia">Transferência</option>
+              </select>
+              <input type="number" min="0" className="input" placeholder="Valor entregue (Kz)" value={amountReceived} onChange={e => setAmountReceived(e.target.value)} />
+              {amountReceived && Number(amountReceived) >= total && (
+                <div className="flex justify-between text-sm bg-surface-muted rounded-lg p-2.5">
+                  <span className="text-ink-muted">Troco</span>
+                  <span className="font-bold text-brand-500">{troco.toLocaleString('pt-AO')} Kz</span>
+                </div>
+              )}
+            </>
+          ) : (
+            <p className="text-xs text-ink-muted bg-surface-muted rounded-lg p-2.5">
+              Este valor vai ser somado à conta do hóspede e cobrado no check-out.
+            </p>
           )}
         </div>
 

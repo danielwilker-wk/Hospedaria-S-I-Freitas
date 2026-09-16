@@ -199,7 +199,7 @@ function CheckInPageInner() {
     setSaving(false)
 
     setTimeout(() => {
-      router.push('/mapa-quartos')
+      router.push('/quartos')
     }, 1500)
   }
 

@@ -140,40 +140,94 @@ export default function RelatorioDiarioPage() {
   function baixarPdf() {
     const dataFormatada = new Date(date + 'T12:00:00').toLocaleDateString('pt-PT', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
     const doc = new jsPDF()
-    let y = 20
+    const pageWidth = doc.internal.pageSize.getWidth()
+    const marginX = 14
+    const brand: [number, number, number] = [234, 88, 12] // laranja da marca
+    const brandLight: [number, number, number] = [255, 237, 213]
+    const gray: [number, number, number] = [107, 114, 128]
+    const dark: [number, number, number] = [31, 41, 55]
 
+    // Cabeçalho colorido
+    doc.setFillColor(...brand)
+    doc.rect(0, 0, pageWidth, 32, 'F')
+    doc.setTextColor(255, 255, 255)
+    doc.setFont('helvetica', 'bold')
     doc.setFontSize(16)
-    doc.text('Hospedaria S&I Freitas', 14, y); y += 8
-    doc.setFontSize(12)
-    doc.text(`Relatório Diário — ${dataFormatada}`, 14, y); y += 12
-
-    doc.setFontSize(11)
-    doc.text('Receção', 14, y); y += 7
+    doc.text('Hospedaria S&I Freitas', marginX, 15)
+    doc.setFont('helvetica', 'normal')
     doc.setFontSize(10)
-    doc.text(`Check-ins: ${checkins.length}`, 14, y); y += 6
-    checkins.forEach(c => { doc.text(`  Entrada - Quarto ${c.number} - ${c.guest}`, 14, y); y += 5 })
-    doc.text(`Check-outs: ${checkouts.length}`, 14, y); y += 6
-    checkouts.forEach(c => { doc.text(`  Saida - Quarto ${c.number} - ${c.guest}`, 14, y); y += 5 })
+    doc.text(`Relatório Diário — ${dataFormatada}`, marginX, 23)
+
+    let y = 44
+
+    function sectionTitle(title: string) {
+      doc.setFillColor(...brand)
+      doc.rect(marginX, y - 4, 2.5, 5, 'F')
+      doc.setTextColor(...dark)
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(11)
+      doc.text(title, marginX + 5, y)
+      y += 8
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(10)
+    }
+
+    function row(label: string, value: string, indent = 0) {
+      doc.setTextColor(...gray)
+      doc.text(label, marginX + indent, y)
+      doc.setTextColor(...dark)
+      doc.text(value, pageWidth - marginX, y, { align: 'right' })
+      y += 6
+    }
+
+    function divider() {
+      y += 2
+      doc.setDrawColor(230, 230, 230)
+      doc.line(marginX, y, pageWidth - marginX, y)
+      y += 8
+    }
+
+    // Receção
+    sectionTitle('Receção')
+    row('Check-ins', String(checkins.length))
+    checkins.forEach(c => { doc.setFontSize(9); doc.setTextColor(...gray); doc.text(`Entrada — Quarto ${c.number} — ${c.guest}`, marginX + 4, y); y += 5; doc.setFontSize(10) })
+    row('Check-outs', String(checkouts.length))
+    checkouts.forEach(c => { doc.setFontSize(9); doc.setTextColor(...gray); doc.text(`Saída — Quarto ${c.number} — ${c.guest}`, marginX + 4, y); y += 5; doc.setFontSize(10) })
+    divider()
+
+    // Sala de Refeições
+    sectionTitle('Sala de Refeições')
+    row('Restaurante — hóspedes', `${restaurantHospede.toLocaleString('pt-AO')} Kz`)
+    row('Restaurante — não-hóspedes', `${restaurantNaoHospede.toLocaleString('pt-AO')} Kz`)
+    row('Bar — hóspedes', `${barHospede.toLocaleString('pt-AO')} Kz`)
+    row('Bar — não-hóspedes', `${barNaoHospede.toLocaleString('pt-AO')} Kz`)
+    divider()
+
+    // Outros
+    sectionTitle('Outros')
+    row('Pequenos-almoços servidos', String(breakfastCount))
+    row('Lavandaria', `${revenueLaundry.toLocaleString('pt-AO')} Kz`)
+    row('Frigobar', `${revenueMinibar.toLocaleString('pt-AO')} Kz`)
+    row('Hospedagem', `${revenueRooms.toLocaleString('pt-AO')} Kz`)
     y += 4
 
-    doc.setFontSize(11)
-    doc.text('Sala de Refeições', 14, y); y += 7
-    doc.setFontSize(10)
-    doc.text(`Restaurante (hóspedes): ${restaurantHospede.toLocaleString('pt-AO')} Kz`, 14, y); y += 6
-    doc.text(`Restaurante (não-hóspedes): ${restaurantNaoHospede.toLocaleString('pt-AO')} Kz`, 14, y); y += 6
-    doc.text(`Bar (hóspedes): ${barHospede.toLocaleString('pt-AO')} Kz`, 14, y); y += 6
-    doc.text(`Bar (não-hóspedes): ${barNaoHospede.toLocaleString('pt-AO')} Kz`, 14, y); y += 10
-
-    doc.setFontSize(11)
-    doc.text('Outros', 14, y); y += 7
-    doc.setFontSize(10)
-    doc.text(`Pequenos-almoços servidos: ${breakfastCount}`, 14, y); y += 6
-    doc.text(`Lavandaria: ${revenueLaundry.toLocaleString('pt-AO')} Kz`, 14, y); y += 6
-    doc.text(`Frigobar: ${revenueMinibar.toLocaleString('pt-AO')} Kz`, 14, y); y += 6
-    doc.text(`Hospedagem: ${revenueRooms.toLocaleString('pt-AO')} Kz`, 14, y); y += 10
-
+    // Caixa de total
+    doc.setFillColor(...brandLight)
+    doc.roundedRect(marginX, y, pageWidth - marginX * 2, 16, 2, 2, 'F')
+    doc.setTextColor(...dark)
+    doc.setFont('helvetica', 'bold')
     doc.setFontSize(12)
-    doc.text(`Total do Dia: ${totalGeral.toLocaleString('pt-AO')} Kz`, 14, y)
+    doc.text('Total do Dia', marginX + 4, y + 10.5)
+    doc.setTextColor(...brand)
+    doc.setFontSize(14)
+    doc.text(`${totalGeral.toLocaleString('pt-AO')} Kz`, pageWidth - marginX - 4, y + 10.5, { align: 'right' })
+
+    // Rodapé
+    const pageHeight = doc.internal.pageSize.getHeight()
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(8)
+    doc.setTextColor(...gray)
+    doc.text(`Gerado em ${new Date().toLocaleString('pt-PT')} pelo sistema de gestão S&I Freitas`, marginX, pageHeight - 10)
 
     doc.save(`relatorio-diario-${date}.pdf`)
   }

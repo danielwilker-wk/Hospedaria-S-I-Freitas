@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { FileText, MessageCircle, CheckCircle } from 'lucide-react'
+import { FileText, MessageCircle, CheckCircle, Download } from 'lucide-react'
+import jsPDF from 'jspdf'
 
 const PROPERTY_ID = '00000000-0000-0000-0000-000000000001'
 
@@ -136,6 +137,47 @@ export default function RelatorioDiarioPage() {
     alert('Relatório copiado! Cola no WhatsApp.')
   }
 
+  function baixarPdf() {
+    const dataFormatada = new Date(date + 'T12:00:00').toLocaleDateString('pt-PT', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+    const doc = new jsPDF()
+    let y = 20
+
+    doc.setFontSize(16)
+    doc.text('Hospedaria S&I Freitas', 14, y); y += 8
+    doc.setFontSize(12)
+    doc.text(`Relatório Diário — ${dataFormatada}`, 14, y); y += 12
+
+    doc.setFontSize(11)
+    doc.text('Receção', 14, y); y += 7
+    doc.setFontSize(10)
+    doc.text(`Check-ins: ${checkins.length}`, 14, y); y += 6
+    checkins.forEach(c => { doc.text(`  Entrada - Quarto ${c.number} - ${c.guest}`, 14, y); y += 5 })
+    doc.text(`Check-outs: ${checkouts.length}`, 14, y); y += 6
+    checkouts.forEach(c => { doc.text(`  Saida - Quarto ${c.number} - ${c.guest}`, 14, y); y += 5 })
+    y += 4
+
+    doc.setFontSize(11)
+    doc.text('Sala de Refeições', 14, y); y += 7
+    doc.setFontSize(10)
+    doc.text(`Restaurante (hóspedes): ${restaurantHospede.toLocaleString('pt-AO')} Kz`, 14, y); y += 6
+    doc.text(`Restaurante (não-hóspedes): ${restaurantNaoHospede.toLocaleString('pt-AO')} Kz`, 14, y); y += 6
+    doc.text(`Bar (hóspedes): ${barHospede.toLocaleString('pt-AO')} Kz`, 14, y); y += 6
+    doc.text(`Bar (não-hóspedes): ${barNaoHospede.toLocaleString('pt-AO')} Kz`, 14, y); y += 10
+
+    doc.setFontSize(11)
+    doc.text('Outros', 14, y); y += 7
+    doc.setFontSize(10)
+    doc.text(`Pequenos-almoços servidos: ${breakfastCount}`, 14, y); y += 6
+    doc.text(`Lavandaria: ${revenueLaundry.toLocaleString('pt-AO')} Kz`, 14, y); y += 6
+    doc.text(`Frigobar: ${revenueMinibar.toLocaleString('pt-AO')} Kz`, 14, y); y += 6
+    doc.text(`Hospedagem: ${revenueRooms.toLocaleString('pt-AO')} Kz`, 14, y); y += 10
+
+    doc.setFontSize(12)
+    doc.text(`Total do Dia: ${totalGeral.toLocaleString('pt-AO')} Kz`, 14, y)
+
+    doc.save(`relatorio-diario-${date}.pdf`)
+  }
+
   return (
     <div className="max-w-2xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
@@ -203,6 +245,9 @@ export default function RelatorioDiarioPage() {
             </button>
             <button onClick={copiarWhatsApp} className="btn-secondary px-5 py-3 flex items-center gap-2">
               <MessageCircle size={16} /> Copiar
+            </button>
+            <button onClick={baixarPdf} className="btn-secondary px-5 py-3 flex items-center gap-2">
+              <Download size={16} /> PDF
             </button>
           </div>
         </>

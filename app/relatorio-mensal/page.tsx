@@ -124,36 +124,89 @@ export default function RelatorioMensalPage() {
 
   function baixarPdf() {
     const doc = new jsPDF()
-    let y = 20
+    const pageWidth = doc.internal.pageSize.getWidth()
+    const marginX = 14
+    const brand: [number, number, number] = [234, 88, 12]
+    const brandLight: [number, number, number] = [255, 237, 213]
+    const gray: [number, number, number] = [107, 114, 128]
+    const dark: [number, number, number] = [31, 41, 55]
+
+    doc.setFillColor(...brand)
+    doc.rect(0, 0, pageWidth, 32, 'F')
+    doc.setTextColor(255, 255, 255)
+    doc.setFont('helvetica', 'bold')
     doc.setFontSize(16)
-    doc.text('Hospedaria S&I Freitas', 14, y); y += 8
+    doc.text('Hospedaria S&I Freitas', marginX, 15)
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(10)
+    const monthLabelCap = monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1)
+    doc.text(`Relatório Mensal — ${monthLabelCap}`, marginX, 23)
+
+    let y = 44
+
+    function sectionTitle(title: string) {
+      doc.setFillColor(...brand)
+      doc.rect(marginX, y - 4, 2.5, 5, 'F')
+      doc.setTextColor(...dark)
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(11)
+      doc.text(title, marginX + 5, y)
+      y += 8
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(10)
+    }
+
+    function row(label: string, value: string) {
+      doc.setTextColor(...gray)
+      doc.text(label, marginX, y)
+      doc.setTextColor(...dark)
+      doc.text(value, pageWidth - marginX, y, { align: 'right' })
+      y += 6
+    }
+
+    function divider() {
+      y += 2
+      doc.setDrawColor(230, 230, 230)
+      doc.line(marginX, y, pageWidth - marginX, y)
+      y += 8
+    }
+
+    sectionTitle('Ocupação')
+    row('Taxa de ocupação', `${occupancyRate.toFixed(1)}%`)
+    row('Total de hóspedes', String(totalGuests))
+    row('Check-ins no mês', String(totalCheckins))
+    row('Check-outs no mês', String(totalCheckouts))
+    divider()
+
+    sectionTitle('Manutenção')
+    row('Pedidos no mês', String(maintenanceCount))
+    row('Quartos afetados', maintenanceRooms.length > 0 ? maintenanceRooms.join(', ') : '—')
+    row('Custo total', `${maintenanceCost.toLocaleString('pt-AO')} Kz`)
+    divider()
+
+    sectionTitle('Receitas do Mês')
+    row('Hospedagem', `${revenueRooms.toLocaleString('pt-AO')} Kz`)
+    row('Lavandaria', `${revenueLaundry.toLocaleString('pt-AO')} Kz`)
+    row('Restaurante', `${revenueRestaurant.toLocaleString('pt-AO')} Kz`)
+    row('Bar', `${revenueBar.toLocaleString('pt-AO')} Kz`)
+    row('Frigobar', `${revenueMinibar.toLocaleString('pt-AO')} Kz`)
+    y += 4
+
+    doc.setFillColor(...brandLight)
+    doc.roundedRect(marginX, y, pageWidth - marginX * 2, 16, 2, 2, 'F')
+    doc.setTextColor(...dark)
+    doc.setFont('helvetica', 'bold')
     doc.setFontSize(12)
-    doc.text(`Relatório Mensal — ${monthLabel}`, 14, y); y += 12
+    doc.text('Total Arrecadado no Mês', marginX + 4, y + 10.5)
+    doc.setTextColor(...brand)
+    doc.setFontSize(14)
+    doc.text(`${totalRevenue.toLocaleString('pt-AO')} Kz`, pageWidth - marginX - 4, y + 10.5, { align: 'right' })
 
-    doc.setFontSize(11)
-    doc.text('Ocupação', 14, y); y += 7
-    doc.setFontSize(10)
-    doc.text(`Taxa de ocupação: ${occupancyRate.toFixed(1)}%`, 14, y); y += 6
-    doc.text(`Total de hóspedes: ${totalGuests}`, 14, y); y += 6
-    doc.text(`Check-ins: ${totalCheckins}  |  Check-outs: ${totalCheckouts}`, 14, y); y += 10
-
-    doc.setFontSize(11)
-    doc.text('Manutenção', 14, y); y += 7
-    doc.setFontSize(10)
-    doc.text(`Pedidos abertos no mês: ${maintenanceCount}`, 14, y); y += 6
-    doc.text(`Quartos afetados: ${maintenanceRooms.length > 0 ? maintenanceRooms.join(', ') : '—'}`, 14, y); y += 6
-    doc.text(`Custo total: ${maintenanceCost.toLocaleString('pt-AO')} Kz`, 14, y); y += 10
-
-    doc.setFontSize(11)
-    doc.text('Receitas', 14, y); y += 7
-    doc.setFontSize(10)
-    doc.text(`Hospedagem: ${revenueRooms.toLocaleString('pt-AO')} Kz`, 14, y); y += 6
-    doc.text(`Lavandaria: ${revenueLaundry.toLocaleString('pt-AO')} Kz`, 14, y); y += 6
-    doc.text(`Restaurante: ${revenueRestaurant.toLocaleString('pt-AO')} Kz`, 14, y); y += 6
-    doc.text(`Bar: ${revenueBar.toLocaleString('pt-AO')} Kz`, 14, y); y += 6
-    doc.text(`Frigobar: ${revenueMinibar.toLocaleString('pt-AO')} Kz`, 14, y); y += 10
-    doc.setFontSize(11)
-    doc.text(`Total arrecadado: ${totalRevenue.toLocaleString('pt-AO')} Kz`, 14, y)
+    const pageHeight = doc.internal.pageSize.getHeight()
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(8)
+    doc.setTextColor(...gray)
+    doc.text(`Gerado em ${new Date().toLocaleString('pt-PT')} pelo sistema de gestão S&I Freitas`, marginX, pageHeight - 10)
 
     doc.save(`relatorio-mensal-${month}.pdf`)
   }

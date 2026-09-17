@@ -245,42 +245,111 @@ export default function CheckOutPage() {
     const now = new Date()
 
     const doc = new jsPDF()
-    let y = 20
+    const pageWidth = doc.internal.pageSize.getWidth()
+    const marginX = 14
+    const brand: [number, number, number] = [234, 88, 12]
+    const brandLight: [number, number, number] = [255, 237, 213]
+    const gray: [number, number, number] = [107, 114, 128]
+    const dark: [number, number, number] = [31, 41, 55]
+
+    doc.setFillColor(...brand)
+    doc.rect(0, 0, pageWidth, 32, 'F')
+    doc.setTextColor(255, 255, 255)
+    doc.setFont('helvetica', 'bold')
     doc.setFontSize(16)
-    doc.text('Hospedaria S&I Freitas', 14, y); y += 8
-    doc.setFontSize(11)
-    doc.text('Documento de Check-in / Check-out', 14, y); y += 10
+    doc.text('Hospedaria S&I Freitas', marginX, 15)
+    doc.setFont('helvetica', 'normal')
     doc.setFontSize(10)
-    doc.text(`Hóspede: ${stay.guests?.full_name} ${stay.guests?.surname ?? ''}`, 14, y); y += 6
-    doc.text(`Documento: ${stay.guests?.document_number ?? '—'}`, 14, y); y += 6
-    doc.text(`Quarto: ${stay.rooms?.number} — ${stay.rooms?.room_types?.name}`, 14, y); y += 6
-    doc.text(`Check-in: ${new Date(stay.check_in_at).toLocaleString('pt-PT')}`, 14, y); y += 6
-    doc.text(`Check-out: ${now.toLocaleString('pt-PT')}`, 14, y); y += 10
+    doc.text('Documento de Check-in / Check-out', marginX, 23)
 
-    doc.setFontSize(11)
-    doc.text('Resumo da conta', 14, y); y += 7
-    doc.setFontSize(10)
-    doc.text(`Hospedagem (${nights} ${nights === 1 ? 'noite' : 'noites'} x ${Number(stay.room_value).toLocaleString('pt-AO')} Kz): ${roomTotal.toLocaleString('pt-AO')} Kz`, 14, y); y += 6
-    doc.text(`Lavandaria: ${laundryTotal.toLocaleString('pt-AO')} Kz`, 14, y); y += 6
-    doc.text(`Restaurante: ${restaurantTotal.toLocaleString('pt-AO')} Kz`, 14, y); y += 6
-    doc.text(`Bar: ${barTotal.toLocaleString('pt-AO')} Kz`, 14, y); y += 6
-    doc.text(`Frigobar: ${minibarTotal.toLocaleString('pt-AO')} Kz`, 14, y); y += 6
-    doc.text(`Subtotal: ${subtotal.toLocaleString('pt-AO')} Kz`, 14, y); y += 10
+    let y = 44
 
-    doc.setFontSize(11)
-    doc.text('Pagamentos', 14, y); y += 7
-    doc.setFontSize(10)
-    doc.text(`Pago no check-in: ${Number(stay.amount_paid_reservation).toLocaleString('pt-AO')} Kz`, 14, y); y += 6
-    paymentsList.forEach(p => {
-      doc.text(`${new Date(p.paid_at).toLocaleDateString('pt-PT')} - ${sourceLabel(p.source_type)} (${methodLabel(p.method)}): ${Number(p.amount).toLocaleString('pt-AO')} Kz`, 14, y)
-      y += 6
-    })
-    y += 2
-    doc.text(`Total pago: ${totalPaid.toLocaleString('pt-AO')} Kz`, 14, y); y += 6
-    doc.text(`Saldo pendente: ${saldoPendente.toLocaleString('pt-AO')} Kz`, 14, y); y += 6
-    if (stay.billed_to === 'empresa') {
-      doc.text(`Facturação: a crédito — ${stay.company_name || 'empresa não especificada'}`, 14, y); y += 6
+    function sectionTitle(title: string) {
+      doc.setFillColor(...brand)
+      doc.rect(marginX, y - 4, 2.5, 5, 'F')
+      doc.setTextColor(...dark)
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(11)
+      doc.text(title, marginX + 5, y)
+      y += 8
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(10)
     }
+
+    function row(label: string, value: string) {
+      doc.setTextColor(...gray)
+      doc.text(label, marginX, y)
+      doc.setTextColor(...dark)
+      doc.text(value, pageWidth - marginX, y, { align: 'right' })
+      y += 6
+    }
+
+    function divider() {
+      y += 2
+      doc.setDrawColor(230, 230, 230)
+      doc.line(marginX, y, pageWidth - marginX, y)
+      y += 8
+    }
+
+    sectionTitle('Hóspede')
+    row('Nome', `${stay.guests?.full_name} ${stay.guests?.surname ?? ''}`)
+    row('Documento', stay.guests?.document_number ?? '—')
+    row('Quarto', `${stay.rooms?.number} — ${stay.rooms?.room_types?.name}`)
+    row('Check-in', new Date(stay.check_in_at).toLocaleString('pt-PT'))
+    row('Check-out', now.toLocaleString('pt-PT'))
+    divider()
+
+    sectionTitle('Resumo da Conta')
+    row(`Hospedagem (${nights} ${nights === 1 ? 'noite' : 'noites'} × ${Number(stay.room_value).toLocaleString('pt-AO')} Kz)`, `${roomTotal.toLocaleString('pt-AO')} Kz`)
+    row('Lavandaria', `${laundryTotal.toLocaleString('pt-AO')} Kz`)
+    row('Restaurante', `${restaurantTotal.toLocaleString('pt-AO')} Kz`)
+    row('Bar', `${barTotal.toLocaleString('pt-AO')} Kz`)
+    row('Frigobar', `${minibarTotal.toLocaleString('pt-AO')} Kz`)
+    doc.setDrawColor(220, 220, 220)
+    doc.line(marginX, y - 2, pageWidth - marginX, y - 2)
+    doc.setFont('helvetica', 'bold')
+    row('Subtotal', `${subtotal.toLocaleString('pt-AO')} Kz`)
+    doc.setFont('helvetica', 'normal')
+    divider()
+
+    sectionTitle('Pagamentos')
+    row('Pago no check-in', `${Number(stay.amount_paid_reservation).toLocaleString('pt-AO')} Kz`)
+    paymentsList.forEach(p => {
+      doc.setFontSize(9)
+      doc.setTextColor(...gray)
+      doc.text(`${new Date(p.paid_at).toLocaleDateString('pt-PT')} — ${sourceLabel(p.source_type)} (${methodLabel(p.method)})`, marginX + 4, y)
+      doc.setTextColor(...dark)
+      doc.text(`${Number(p.amount).toLocaleString('pt-AO')} Kz`, pageWidth - marginX, y, { align: 'right' })
+      y += 5.5
+      doc.setFontSize(10)
+    })
+    y += 1
+    doc.setFont('helvetica', 'bold')
+    row('Total pago', `${totalPaid.toLocaleString('pt-AO')} Kz`)
+    doc.setFont('helvetica', 'normal')
+    if (stay.billed_to === 'empresa') {
+      row('Facturação', `Crédito — ${stay.company_name || 'empresa não especificada'}`)
+    }
+    y += 4
+
+    // Caixa de saldo
+    const saldoColor: [number, number, number] = saldoPendente > 0 ? [255, 251, 235] : [240, 253, 244]
+    const saldoTextColor: [number, number, number] = saldoPendente > 0 ? [180, 83, 9] : [21, 128, 61]
+    doc.setFillColor(...saldoColor)
+    doc.roundedRect(marginX, y, pageWidth - marginX * 2, 16, 2, 2, 'F')
+    doc.setTextColor(...dark)
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(12)
+    doc.text('Saldo Pendente', marginX + 4, y + 10.5)
+    doc.setTextColor(...saldoTextColor)
+    doc.setFontSize(14)
+    doc.text(`${saldoPendente.toLocaleString('pt-AO')} Kz`, pageWidth - marginX - 4, y + 10.5, { align: 'right' })
+
+    const pageHeight = doc.internal.pageSize.getHeight()
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(8)
+    doc.setTextColor(...gray)
+    doc.text(`Gerado em ${now.toLocaleString('pt-PT')} pelo sistema de gestão S&I Freitas`, marginX, pageHeight - 10)
 
     const blob = doc.output('blob')
     const path = `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}/${stay.id}.pdf`

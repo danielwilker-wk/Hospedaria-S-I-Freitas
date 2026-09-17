@@ -18,6 +18,7 @@ import {
   FileText,
   Archive,
   BarChart3,
+  Users,
   ChevronDown,
   LogOut,
 } from 'lucide-react'
@@ -55,6 +56,7 @@ const nav: NavItem[] = [
       { href: '/sala-refeicoes/bar', label: 'Bar', icon: Wine },
       { href: '/sala-refeicoes/bar/stock', label: 'Stock do Bar', icon: Package },
       { href: '/frigobar/produtos', label: 'Frigobar', icon: Package },
+      { href: '/funcionarios', label: 'Funcionários', icon: Users },
     ],
   },
   { href: '/limpeza', label: 'Limpeza', icon: Sparkles },

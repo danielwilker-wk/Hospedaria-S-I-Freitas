@@ -40,7 +40,7 @@ export default function RestauranteVendaPage() {
       if (session) setStaffId(session.user.id)
     })
     supabase
-      .from('staff')
+      .from('attendants')
       .select('id, full_name')
       .eq('property_id', PROPERTY_ID)
       .eq('active', true)

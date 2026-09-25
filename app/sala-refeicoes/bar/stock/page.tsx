@@ -8,13 +8,14 @@ import type { BarProduct } from '@/types'
 const PROPERTY_ID = '00000000-0000-0000-0000-000000000001'
 
 export default function BarStockPage() {
-  const [staffId, setStaffId] = useState('')
+  const [attendants, setAttendants] = useState<{ id: string; full_name: string }[]>([])
   const [products, setProducts] = useState<BarProduct[]>([])
   const [loading, setLoading] = useState(true)
 
   const [newProduct, setNewProduct] = useState({ name: '', unit: 'unidade', price: '', stock_quantity: '0' })
   const [savingProduct, setSavingProduct] = useState(false)
 
+  const [movementAttendantId, setMovementAttendantId] = useState('')
   const [movementProductId, setMovementProductId] = useState('')
   const [movementType, setMovementType] = useState<'entrada' | 'saida'>('entrada')
   const [movementQty, setMovementQty] = useState('')
@@ -34,9 +35,14 @@ export default function BarStockPage() {
 
   useEffect(() => {
     const supabase = createClient()
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) setStaffId(session.user.id)
-    })
+    supabase
+      .from('attendants')
+      .select('id, full_name')
+      .eq('property_id', PROPERTY_ID)
+      .eq('department', 'sala_refeicoes')
+      .eq('active', true)
+      .order('full_name')
+      .then(({ data }) => setAttendants(data ?? []))
     load()
   }, [])
 
@@ -60,7 +66,7 @@ export default function BarStockPage() {
 
   async function registerMovement(e: React.FormEvent) {
     e.preventDefault()
-    if (!movementProductId || !movementQty) return
+    if (!movementProductId || !movementQty || !movementAttendantId) return
     setSavingMovement(true)
     const supabase = createClient()
     const product = products.find(p => p.id === movementProductId)
@@ -81,7 +87,7 @@ export default function BarStockPage() {
       movement_type: movementType,
       quantity: qty,
       reason: movementReason || null,
-      recorded_by: staffId,
+      recorded_by: movementAttendantId,
     })
     if (movError) { alert('Erro: ' + movError.message); setSavingMovement(false); return }
 
@@ -90,6 +96,7 @@ export default function BarStockPage() {
     setMovementProductId('')
     setMovementQty('')
     setMovementReason('')
+    setMovementAttendantId('')
     setSavingMovement(false)
     load()
   }
@@ -118,6 +125,12 @@ export default function BarStockPage() {
 
       <form onSubmit={registerMovement} className="card space-y-3">
         <h2 className="text-xs font-bold text-ink-muted uppercase tracking-wide">Registar entrada / saída</h2>
+        <select className="input" value={movementAttendantId} onChange={e => setMovementAttendantId(e.target.value)}>
+          <option value="">Quem está a registar?</option>
+          {attendants.map(a => (
+            <option key={a.id} value={a.id}>{a.full_name}</option>
+          ))}
+        </select>
         <select className="input" value={movementProductId} onChange={e => setMovementProductId(e.target.value)}>
           <option value="">Seleccionar produto</option>
           {products.map(p => (
@@ -134,7 +147,7 @@ export default function BarStockPage() {
         </div>
         <input type="number" className="input" placeholder="Quantidade" min="1" value={movementQty} onChange={e => setMovementQty(e.target.value)} />
         <input type="text" className="input" placeholder="Motivo (ex: compra, quebra, ajuste)" value={movementReason} onChange={e => setMovementReason(e.target.value)} />
-        <button type="submit" disabled={savingMovement || !movementProductId} className="btn-primary w-full py-2.5">
+        <button type="submit" disabled={savingMovement || !movementProductId || !movementAttendantId} className="btn-primary w-full py-2.5">
           {savingMovement ? 'A registar...' : 'Registar Movimento'}
         </button>
       </form>

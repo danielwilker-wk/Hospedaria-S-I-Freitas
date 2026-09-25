@@ -43,6 +43,7 @@ export default function RestauranteVendaPage() {
       .from('attendants')
       .select('id, full_name')
       .eq('property_id', PROPERTY_ID)
+      .eq('department', 'sala_refeicoes')
       .eq('active', true)
       .order('full_name')
       .then(({ data }) => setStaffList(data ?? []))

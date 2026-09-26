@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { UtensilsCrossed, Plus, Trash2 } from 'lucide-react'
+import { UtensilsCrossed, Plus, Trash2, Pencil, Check, X } from 'lucide-react'
 import type { MenuItem } from '@/types'
 
 const PROPERTY_ID = '00000000-0000-0000-0000-000000000001'
@@ -13,6 +13,10 @@ export default function MenuRestauranteAdminPage() {
   const [saving, setSaving] = useState(false)
 
   const [form, setForm] = useState({ name: '', price: '', category: '' })
+
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editForm, setEditForm] = useState({ name: '', price: '', category: '' })
+  const [savingEdit, setSavingEdit] = useState(false)
 
   async function load() {
     const supabase = createClient()
@@ -59,6 +63,26 @@ export default function MenuRestauranteAdminPage() {
     load()
   }
 
+  function startEdit(item: MenuItem) {
+    setEditingId(item.id)
+    setEditForm({ name: item.name, price: String(item.price), category: item.category ?? '' })
+  }
+
+  async function saveEdit(id: string) {
+    if (!editForm.name || !editForm.price) return
+    setSavingEdit(true)
+    const supabase = createClient()
+    const { error } = await supabase.from('menu_items').update({
+      name: editForm.name,
+      price: Number(editForm.price),
+      category: editForm.category || null,
+    }).eq('id', id)
+    if (error) { alert('Erro: ' + error.message); setSavingEdit(false); return }
+    setEditingId(null)
+    setSavingEdit(false)
+    load()
+  }
+
   const grouped = items.reduce((acc: Record<string, MenuItem[]>, item) => {
     const key = item.category || 'Sem categoria'
     acc[key] = acc[key] || []
@@ -97,19 +121,42 @@ export default function MenuRestauranteAdminPage() {
             <h3 className="text-xs font-bold text-ink-muted uppercase tracking-wide">{category}</h3>
             <div className="divide-y divide-border">
               {catItems.map(item => (
-                <div key={item.id} className="py-2.5 flex items-center justify-between">
-                  <div>
-                    <p className={`font-medium ${item.active ? 'text-ink' : 'text-ink-light line-through'}`}>{item.name}</p>
-                    <p className="text-xs text-ink-muted">{Number(item.price).toLocaleString('pt-AO')} Kz</p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <button onClick={() => toggleActive(item)} className="text-xs font-medium text-brand-500">
-                      {item.active ? 'Desativar' : 'Ativar'}
-                    </button>
-                    <button onClick={() => remove(item)} className="text-ink-light hover:text-red-500">
-                      <Trash2 size={15} />
-                    </button>
-                  </div>
+                <div key={item.id} className="py-2.5">
+                  {editingId === item.id ? (
+                    <div className="space-y-2">
+                      <div className="grid grid-cols-3 gap-2">
+                        <input type="text" className="input col-span-1 text-sm" placeholder="Categoria" value={editForm.category} onChange={e => setEditForm(f => ({ ...f, category: e.target.value }))} />
+                        <input type="text" className="input col-span-2 text-sm" placeholder="Nome" value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} />
+                      </div>
+                      <div className="flex gap-2">
+                        <input type="number" min="0" className="input flex-1 text-sm" placeholder="Preço (Kz)" value={editForm.price} onChange={e => setEditForm(f => ({ ...f, price: e.target.value }))} />
+                        <button onClick={() => saveEdit(item.id)} disabled={savingEdit} className="btn-primary px-3 flex items-center gap-1 text-sm">
+                          <Check size={14} /> {savingEdit ? '...' : 'Guardar'}
+                        </button>
+                        <button onClick={() => setEditingId(null)} className="btn-secondary px-3 flex items-center gap-1 text-sm">
+                          <X size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className={`font-medium ${item.active ? 'text-ink' : 'text-ink-light line-through'}`}>{item.name}</p>
+                        <p className="text-xs text-ink-muted">{Number(item.price).toLocaleString('pt-AO')} Kz</p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <button onClick={() => startEdit(item)} className="text-ink-light hover:text-brand-500">
+                          <Pencil size={14} />
+                        </button>
+                        <button onClick={() => toggleActive(item)} className="text-xs font-medium text-brand-500">
+                          {item.active ? 'Desativar' : 'Ativar'}
+                        </button>
+                        <button onClick={() => remove(item)} className="text-ink-light hover:text-red-500">
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

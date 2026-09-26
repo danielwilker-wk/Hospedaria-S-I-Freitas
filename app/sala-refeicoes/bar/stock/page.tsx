@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Wine, Plus, ArrowDownCircle, ArrowUpCircle } from 'lucide-react'
+import { Wine, Plus, ArrowDownCircle, ArrowUpCircle, Pencil, Check, X } from 'lucide-react'
 import type { BarProduct } from '@/types'
 
 const PROPERTY_ID = '00000000-0000-0000-0000-000000000001'
@@ -21,6 +21,10 @@ export default function BarStockPage() {
   const [movementQty, setMovementQty] = useState('')
   const [movementReason, setMovementReason] = useState('')
   const [savingMovement, setSavingMovement] = useState(false)
+
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editForm, setEditForm] = useState({ name: '', unit: '', price: '' })
+  const [savingEdit, setSavingEdit] = useState(false)
 
   async function load() {
     const supabase = createClient()
@@ -101,6 +105,26 @@ export default function BarStockPage() {
     load()
   }
 
+  function startEdit(p: BarProduct) {
+    setEditingId(p.id)
+    setEditForm({ name: p.name, unit: p.unit, price: String(p.price) })
+  }
+
+  async function saveEdit(id: string) {
+    if (!editForm.name || !editForm.price) return
+    setSavingEdit(true)
+    const supabase = createClient()
+    const { error } = await supabase.from('bar_products').update({
+      name: editForm.name,
+      unit: editForm.unit,
+      price: Number(editForm.price),
+    }).eq('id', id)
+    if (error) { alert('Erro: ' + error.message); setSavingEdit(false); return }
+    setEditingId(null)
+    setSavingEdit(false)
+    load()
+  }
+
   return (
     <div className="max-w-2xl mx-auto space-y-6">
       <div>
@@ -161,14 +185,39 @@ export default function BarStockPage() {
         ) : (
           <div className="divide-y divide-border">
             {products.map(p => (
-              <div key={p.id} className="py-2.5 flex items-center justify-between text-sm">
-                <div>
-                  <p className="font-medium text-ink">{p.name}</p>
-                  <p className="text-xs text-ink-muted">{Number(p.price).toLocaleString('pt-AO')} Kz / {p.unit}</p>
-                </div>
-                <span className={`font-semibold px-2.5 py-1 rounded-full text-xs ${p.stock_quantity <= 5 ? 'bg-red-50 text-red-600' : 'bg-surface-muted text-ink'}`}>
-                  {p.stock_quantity} {p.unit}
-                </span>
+              <div key={p.id} className="py-2.5">
+                {editingId === p.id ? (
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-3 gap-2">
+                      <input type="text" className="input col-span-2 text-sm" placeholder="Nome" value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} />
+                      <input type="text" className="input text-sm" placeholder="Unidade" value={editForm.unit} onChange={e => setEditForm(f => ({ ...f, unit: e.target.value }))} />
+                    </div>
+                    <div className="flex gap-2">
+                      <input type="number" min="0" className="input flex-1 text-sm" placeholder="Preço (Kz)" value={editForm.price} onChange={e => setEditForm(f => ({ ...f, price: e.target.value }))} />
+                      <button onClick={() => saveEdit(p.id)} disabled={savingEdit} className="btn-primary px-3 flex items-center gap-1 text-sm">
+                        <Check size={14} /> {savingEdit ? '...' : 'Guardar'}
+                      </button>
+                      <button onClick={() => setEditingId(null)} className="btn-secondary px-3 flex items-center gap-1 text-sm">
+                        <X size={14} />
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between text-sm">
+                    <div>
+                      <p className="font-medium text-ink">{p.name}</p>
+                      <p className="text-xs text-ink-muted">{Number(p.price).toLocaleString('pt-AO')} Kz / {p.unit}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className={`font-semibold px-2.5 py-1 rounded-full text-xs ${p.stock_quantity <= 5 ? 'bg-red-50 text-red-600' : 'bg-surface-muted text-ink'}`}>
+                        {p.stock_quantity} {p.unit}
+                      </span>
+                      <button onClick={() => startEdit(p)} className="text-ink-light hover:text-brand-500">
+                        <Pencil size={14} />
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
           </div>

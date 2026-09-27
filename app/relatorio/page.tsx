@@ -30,6 +30,8 @@ export default function RelatorioDiarioPage() {
   const [barNaoHospede, setBarNaoHospede] = useState(0)
   const [revenueMinibar, setRevenueMinibar] = useState(0)
   const [breakfastCount, setBreakfastCount] = useState(0)
+  const [restaurantProducts, setRestaurantProducts] = useState<{ name: string; qty: number; total: number }[]>([])
+  const [barProducts, setBarProducts] = useState<{ name: string; qty: number; total: number }[]>([])
 
   useEffect(() => {
     const supabase = createClient()
@@ -54,6 +56,8 @@ export default function RelatorioDiarioPage() {
       { data: barSalesData },
       { data: minibarData },
       { data: breakfastData },
+      { data: restaurantItemsData },
+      { data: barItemsData },
     ] = await Promise.all([
       supabase.from('stays').select('room_value, amount_paid_reservation, rooms(number), guests(full_name, surname)').eq('property_id', PROPERTY_ID).gte('check_in_at', dayStart).lte('check_in_at', dayEnd),
       supabase.from('stays').select('rooms(number), guests(full_name, surname)').eq('property_id', PROPERTY_ID).gte('check_out_at', dayStart).lte('check_out_at', dayEnd),
@@ -63,6 +67,8 @@ export default function RelatorioDiarioPage() {
       supabase.from('bar_sales').select('id, guest_type, bar_sale_items(subtotal)').eq('property_id', PROPERTY_ID).eq('record_date', selectedDate),
       supabase.from('minibar_consumptions').select('total').eq('property_id', PROPERTY_ID).gte('consumed_at', dayStart).lte('consumed_at', dayEnd),
       supabase.from('breakfast_records').select('id').eq('property_id', PROPERTY_ID).eq('record_date', selectedDate).eq('confirmed', true),
+      supabase.from('restaurant_sale_items').select('quantity, subtotal, menu_items(name), restaurant_sales!inner(record_date, property_id)').eq('restaurant_sales.property_id', PROPERTY_ID).eq('restaurant_sales.record_date', selectedDate),
+      supabase.from('bar_sale_items').select('quantity, subtotal, bar_products(name), bar_sales!inner(record_date, property_id)').eq('bar_sales.property_id', PROPERTY_ID).eq('bar_sales.record_date', selectedDate),
     ])
 
     setCheckins((checkinsData ?? []).map((s: any) => ({ number: s.rooms?.number, guest: `${s.guests?.full_name ?? ''} ${s.guests?.surname ?? ''}`.trim() })))
@@ -86,6 +92,24 @@ export default function RelatorioDiarioPage() {
 
     setRevenueMinibar((minibarData ?? []).reduce((sum: number, r: any) => sum + Number(r.total), 0))
     setBreakfastCount((breakfastData ?? []).length)
+
+    const restaurantAgg: Record<string, { qty: number; total: number }> = {}
+    ;(restaurantItemsData ?? []).forEach((it: any) => {
+      const name = it.menu_items?.name ?? 'Item removido'
+      if (!restaurantAgg[name]) restaurantAgg[name] = { qty: 0, total: 0 }
+      restaurantAgg[name].qty += Number(it.quantity)
+      restaurantAgg[name].total += Number(it.subtotal)
+    })
+    setRestaurantProducts(Object.entries(restaurantAgg).map(([name, v]) => ({ name, ...v })).sort((a, b) => b.total - a.total))
+
+    const barAgg: Record<string, { qty: number; total: number }> = {}
+    ;(barItemsData ?? []).forEach((it: any) => {
+      const name = it.bar_products?.name ?? 'Item removido'
+      if (!barAgg[name]) barAgg[name] = { qty: 0, total: 0 }
+      barAgg[name].qty += Number(it.quantity)
+      barAgg[name].total += Number(it.subtotal)
+    })
+    setBarProducts(Object.entries(barAgg).map(([name, v]) => ({ name, ...v })).sort((a, b) => b.total - a.total))
 
     setLoading(false)
   }
@@ -127,6 +151,14 @@ export default function RelatorioDiarioPage() {
     txt += `Check-outs: ${checkouts.length}\n`
     checkouts.forEach(c => txt += `  • Quarto ${c.number} — ${c.guest}\n`)
     txt += `\n*Sala de Refeições*\nRestaurante (hóspedes): ${restaurantHospede.toLocaleString('pt-AO')} Kz\nRestaurante (não-hóspedes): ${restaurantNaoHospede.toLocaleString('pt-AO')} Kz\nBar (hóspedes): ${barHospede.toLocaleString('pt-AO')} Kz\nBar (não-hóspedes): ${barNaoHospede.toLocaleString('pt-AO')} Kz\n`
+    if (restaurantProducts.length > 0) {
+      txt += `\nPratos vendidos:\n`
+      restaurantProducts.forEach(p => txt += `  • ${p.qty}× ${p.name} — ${p.total.toLocaleString('pt-AO')} Kz\n`)
+    }
+    if (barProducts.length > 0) {
+      txt += `\nProdutos do bar vendidos:\n`
+      barProducts.forEach(p => txt += `  • ${p.qty}× ${p.name} — ${p.total.toLocaleString('pt-AO')} Kz\n`)
+    }
     txt += `\n*Outros*\nPequenos-almoços servidos: ${breakfastCount}\nLavandaria: ${revenueLaundry.toLocaleString('pt-AO')} Kz\nFrigobar: ${revenueMinibar.toLocaleString('pt-AO')} Kz\n`
     txt += `\n*Total do dia: ${totalGeral.toLocaleString('pt-AO')} Kz*`
     return txt
@@ -201,6 +233,37 @@ export default function RelatorioDiarioPage() {
     row('Restaurante — não-hóspedes', `${restaurantNaoHospede.toLocaleString('pt-AO')} Kz`)
     row('Bar — hóspedes', `${barHospede.toLocaleString('pt-AO')} Kz`)
     row('Bar — não-hóspedes', `${barNaoHospede.toLocaleString('pt-AO')} Kz`)
+
+    if (restaurantProducts.length > 0) {
+      y += 1
+      doc.setFontSize(9)
+      doc.setTextColor(...gray)
+      doc.text('Pratos vendidos:', marginX, y); y += 5
+      restaurantProducts.forEach(p => {
+        doc.text(`${p.qty}x ${p.name}`, marginX + 4, y)
+        doc.setTextColor(...dark)
+        doc.text(`${p.total.toLocaleString('pt-AO')} Kz`, pageWidth - marginX, y, { align: 'right' })
+        doc.setTextColor(...gray)
+        y += 5
+      })
+      doc.setFontSize(10)
+    }
+
+    if (barProducts.length > 0) {
+      y += 1
+      doc.setFontSize(9)
+      doc.setTextColor(...gray)
+      doc.text('Produtos do bar vendidos:', marginX, y); y += 5
+      barProducts.forEach(p => {
+        doc.text(`${p.qty}x ${p.name}`, marginX + 4, y)
+        doc.setTextColor(...dark)
+        doc.text(`${p.total.toLocaleString('pt-AO')} Kz`, pageWidth - marginX, y, { align: 'right' })
+        doc.setTextColor(...gray)
+        y += 5
+      })
+      doc.setFontSize(10)
+    }
+    y += 3
     divider()
 
     // Outros
@@ -274,6 +337,30 @@ export default function RelatorioDiarioPage() {
               <div className="flex justify-between col-span-2"><span className="text-ink-muted">Bar — hóspedes</span><span className="font-medium">{barHospede.toLocaleString('pt-AO')} Kz</span></div>
               <div className="flex justify-between col-span-2"><span className="text-ink-muted">Bar — não-hóspedes</span><span className="font-medium">{barNaoHospede.toLocaleString('pt-AO')} Kz</span></div>
             </div>
+
+            {restaurantProducts.length > 0 && (
+              <div className="pt-2 border-t border-border">
+                <p className="text-xs text-ink-light mb-1">Pratos vendidos:</p>
+                {restaurantProducts.map((p, i) => (
+                  <div key={i} className="flex justify-between text-xs pl-2 py-0.5">
+                    <span className="text-ink-muted">{p.qty}× {p.name}</span>
+                    <span className="font-medium">{p.total.toLocaleString('pt-AO')} Kz</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {barProducts.length > 0 && (
+              <div className="pt-2 border-t border-border">
+                <p className="text-xs text-ink-light mb-1">Produtos do bar vendidos:</p>
+                {barProducts.map((p, i) => (
+                  <div key={i} className="flex justify-between text-xs pl-2 py-0.5">
+                    <span className="text-ink-muted">{p.qty}× {p.name}</span>
+                    <span className="font-medium">{p.total.toLocaleString('pt-AO')} Kz</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="card space-y-2">

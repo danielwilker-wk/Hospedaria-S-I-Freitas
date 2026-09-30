@@ -19,6 +19,7 @@ import {
   Archive,
   BarChart3,
   Users,
+  Building2,
   ChevronDown,
   LogOut,
 } from 'lucide-react'
@@ -61,6 +62,7 @@ const nav: NavItem[] = [
   },
   { href: '/limpeza', label: 'Limpeza', icon: Sparkles },
   { href: '/manutencao', label: 'Manutenção', icon: Wrench },
+  { href: '/empresas', label: 'Empresas', icon: Building2 },
   { href: '/relatorio', label: 'Relatório Diário', icon: FileText },
   { href: '/relatorio-mensal', label: 'Relatório Mensal', icon: BarChart3 },
   { href: '/arquivo-checkout', label: 'Arquivo Check-out', icon: Archive },

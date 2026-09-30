@@ -30,6 +30,7 @@ export default function RestauranteVendaPage() {
 
   const [amountReceived, setAmountReceived] = useState('')
   const [paymentMethod, setPaymentMethod] = useState('numerario')
+  const [paymentBank, setPaymentBank] = useState('BIC')
   const [paymentTiming, setPaymentTiming] = useState<'debitar' | 'agora'>('debitar')
   const [saving, setSaving] = useState(false)
   const [success, setSuccess] = useState(false)
@@ -116,6 +117,7 @@ export default function RestauranteVendaPage() {
         amount_received: payingNow ? Number(amountReceived) : null,
         change_given: payingNow ? troco : null,
         payment_method: payingNow ? paymentMethod : null,
+        bank_name: (payingNow && paymentMethod === 'tpa') ? paymentBank : null,
         recorded_by: attendantId,
       })
       .select()
@@ -132,8 +134,6 @@ export default function RestauranteVendaPage() {
     const { error: itemsError } = await supabase.from('restaurant_sale_items').insert(items)
     if (itemsError) { alert('Venda registada mas houve erro nos itens: ' + itemsError.message) }
 
-    // Se o hóspede pagou logo (em vez de debitar na conta), regista o pagamento
-    // para não ser cobrado outra vez no check-out.
     if (guestType === 'hospede' && paymentTiming === 'agora' && selectedStay) {
       await supabase.from('payments').insert({
         property_id: PROPERTY_ID,
@@ -141,6 +141,7 @@ export default function RestauranteVendaPage() {
         source_id: selectedStay.id,
         amount: total,
         method: paymentMethod,
+        bank_name: paymentMethod === 'tpa' ? paymentBank : null,
         recorded_by: attendantId,
       })
     }
@@ -168,7 +169,6 @@ export default function RestauranteVendaPage() {
 
   return (
     <div className="max-w-4xl mx-auto grid grid-cols-3 gap-6">
-      {/* Menu */}
       <div className="col-span-2 space-y-4">
         <h1 className="text-xl font-semibold text-ink flex items-center gap-2">
           <UtensilsCrossed size={20} className="text-brand-500" /> Restaurante — Venda
@@ -198,7 +198,6 @@ export default function RestauranteVendaPage() {
         )}
       </div>
 
-      {/* Carrinho / Checkout */}
       <div className="space-y-4">
         <div className="card space-y-2">
           <h2 className="text-xs font-bold text-ink-muted uppercase tracking-wide">Quem está a atender?</h2>
@@ -297,11 +296,20 @@ export default function RestauranteVendaPage() {
           )}
           {payingNow ? (
             <>
-              <select className="input" value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)}>
-                <option value="numerario">Numerário</option>
-                <option value="tpa">TPA</option>
-                <option value="transferencia">Transferência</option>
-              </select>
+              <div className="flex gap-2">
+                <select className="input flex-1" value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)}>
+                  <option value="numerario">Numerário</option>
+                  <option value="tpa">TPA</option>
+                  <option value="transferencia">Transferência</option>
+                </select>
+                {paymentMethod === 'tpa' && (
+                  <select className="input w-24" value={paymentBank} onChange={e => setPaymentBank(e.target.value)}>
+                    <option value="BIC">BIC</option>
+                    <option value="BFA">BFA</option>
+                    <option value="BAI">BAI</option>
+                  </select>
+                )}
+              </div>
               <input type="number" min="0" className="input" placeholder="Valor entregue (Kz)" value={amountReceived} onChange={e => setAmountReceived(e.target.value)} />
               {amountReceived && Number(amountReceived) >= total && (
                 <div className="flex justify-between text-sm bg-surface-muted rounded-lg p-2.5">

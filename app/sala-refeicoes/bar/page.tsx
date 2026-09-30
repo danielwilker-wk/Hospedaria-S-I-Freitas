@@ -30,6 +30,7 @@ export default function BarVendaPage() {
 
   const [amountReceived, setAmountReceived] = useState('')
   const [paymentMethod, setPaymentMethod] = useState('numerario')
+  const [paymentBank, setPaymentBank] = useState('BIC')
   const [paymentTiming, setPaymentTiming] = useState<'debitar' | 'agora'>('debitar')
   const [saving, setSaving] = useState(false)
   const [success, setSuccess] = useState(false)
@@ -102,7 +103,6 @@ export default function BarVendaPage() {
 
   const total = cart.reduce((sum, c) => sum + c.product.price * c.quantity, 0)
   const troco = amountReceived ? Number(amountReceived) - total : 0
-
   const payingNow = guestType === 'nao_hospede' || paymentTiming === 'agora'
 
   const canFinalize = cart.length > 0 &&
@@ -165,6 +165,7 @@ export default function BarVendaPage() {
         source_id: selectedStay.id,
         amount: total,
         method: paymentMethod,
+        bank_name: paymentMethod === 'tpa' ? paymentBank : null,
         recorded_by: attendantId,
       })
     }
@@ -216,7 +217,7 @@ export default function BarVendaPage() {
           </div>
           {products.length === 0 && (
             <p className="text-sm text-ink-muted text-center py-8">
-              Nenhum produto no bar ainda. Adiciona em Sala de Refeições → Bar → Stock.
+              Nenhum produto no bar ainda. Adiciona em Sala de Refeições → Stock do Bar.
             </p>
           )}
         </div>
@@ -321,11 +322,20 @@ export default function BarVendaPage() {
           )}
           {payingNow ? (
             <>
-              <select className="input" value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)}>
-                <option value="numerario">Numerário</option>
-                <option value="tpa">TPA</option>
-                <option value="transferencia">Transferência</option>
-              </select>
+              <div className="flex gap-2">
+                <select className="input flex-1" value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)}>
+                  <option value="numerario">Numerário</option>
+                  <option value="tpa">TPA</option>
+                  <option value="transferencia">Transferência</option>
+                </select>
+                {paymentMethod === 'tpa' && (
+                  <select className="input w-24" value={paymentBank} onChange={e => setPaymentBank(e.target.value)}>
+                    <option value="BIC">BIC</option>
+                    <option value="BFA">BFA</option>
+                    <option value="BAI">BAI</option>
+                  </select>
+                )}
+              </div>
               <input type="number" min="0" className="input" placeholder="Valor entregue (Kz)" value={amountReceived} onChange={e => setAmountReceived(e.target.value)} />
               {amountReceived && Number(amountReceived) >= total && (
                 <div className="flex justify-between text-sm bg-surface-muted rounded-lg p-2.5">

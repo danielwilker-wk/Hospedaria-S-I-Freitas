@@ -297,6 +297,7 @@ export interface CheckoutDocument {
   property_id: string
   stay_id: string
   pdf_url?: string
+  invoice_number?: string
   generated_at: string
 }
 

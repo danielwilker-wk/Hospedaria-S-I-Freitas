@@ -70,6 +70,15 @@ export interface Guest {
   created_at: string
 }
 
+export interface Company {
+  id: string
+  property_id: string
+  name: string
+  default_discount: boolean
+  active: boolean
+  created_at: string
+}
+
 export interface Stay {
   id: string
   reservation_id?: string
@@ -84,10 +93,12 @@ export interface Stay {
   check_out_planned_at?: string
   check_out_at?: string
   room_value: number
+  base_room_value?: number
   amount_paid_reservation: number
   amount_due: number
   billed_to: BillingType
-  company_name?: string
+  company_id?: string
+  discount_applied: boolean
   status: StayStatus
   checked_in_by: string
   checked_out_verified_by?: string
@@ -95,12 +106,13 @@ export interface Stay {
   // joins
   rooms?: Room
   guests?: Guest
+  companies?: Company
 }
 
 export interface Payment {
   id: string
   property_id: string
-  source_type: 'stay' | 'laundry' | 'restaurant'
+  source_type: 'stay' | 'laundry' | 'restaurant' | 'bar' | 'minibar'
   source_id: string
   amount: number
   method: PaymentMethod
@@ -144,6 +156,8 @@ export interface DailySummary {
   total_revenue_breakfast: number
   total_revenue_laundry: number
   total_revenue_restaurant: number
+  total_revenue_bar: number
+  total_revenue_minibar: number
   total_revenue_overall: number
   generated_at: string
   reviewed_by?: string
@@ -231,6 +245,59 @@ export interface BarSaleItem {
   quantity: number
   unit_price: number
   subtotal: number
+}
+
+export interface MinibarProduct {
+  id: string
+  property_id: string
+  name: string
+  price: number
+  active: boolean
+  created_at: string
+}
+
+export interface MinibarConsumption {
+  id: string
+  property_id: string
+  stay_id: string
+  product_id: string
+  quantity: number
+  unit_price: number
+  total: number
+  recorded_by: string
+  consumed_at: string
+}
+
+export interface Attendant {
+  id: string
+  property_id: string
+  full_name: string
+  department: 'sala_refeicoes' | 'limpeza'
+  active: boolean
+  created_at: string
+}
+
+export interface MaintenanceRequest {
+  id: string
+  property_id: string
+  room_id: string
+  description: string
+  reported_by: string
+  status: MaintenanceStatus
+  reported_at: string
+  started_at?: string
+  resolved_at?: string
+  material_used?: string
+  supplier?: string
+  cost?: number
+}
+
+export interface CheckoutDocument {
+  id: string
+  property_id: string
+  stay_id: string
+  pdf_url?: string
+  generated_at: string
 }
 
 // Vista v_room_occupancy

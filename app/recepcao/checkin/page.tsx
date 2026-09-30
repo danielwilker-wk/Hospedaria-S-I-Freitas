@@ -27,6 +27,7 @@ function CheckInPageInner() {
   const [existingGuestId, setExistingGuestId] = useState<string | null>(null)
 
   const [rooms, setRooms] = useState<any[]>([])
+  const [companies, setCompanies] = useState<{ id: string; name: string; default_discount: boolean }[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [success, setSuccess] = useState(false)
@@ -48,11 +49,13 @@ function CheckInPageInner() {
     vehicle_color: '',
     check_out_planned_at: '',
     amount_paid_reservation: '0',
+    payment_method: 'numerario',
+    bank_name: '',
     billed_to: 'proprio',
-    company_name: '',
+    company_id: '',
+    discount_applied: false,
   })
 
-  // Carrega quartos vagos + sessão do rececionista
   useEffect(() => {
     const supabase = createClient()
     async function load() {
@@ -60,20 +63,27 @@ function CheckInPageInner() {
       if (!session) { router.push('/auth/login'); return }
       setStaffId(session.user.id)
 
-      const { data } = await supabase
+      const { data: roomsData } = await supabase
         .from('rooms')
         .select('*, room_types(name, individual_price, duplo_price)')
         .eq('property_id', PROPERTY_ID)
         .eq('status', 'vago')
         .order('number')
+      setRooms(roomsData ?? [])
 
-      setRooms(data ?? [])
+      const { data: companiesData } = await supabase
+        .from('companies')
+        .select('id, name, default_discount')
+        .eq('property_id', PROPERTY_ID)
+        .eq('active', true)
+        .order('name')
+      setCompanies(companiesData ?? [])
+
       setLoading(false)
     }
     load()
   }, [router])
 
-  // Se veio de /recepcao/hospedes com ?guest_id=, carregar esse hóspede directamente
   useEffect(() => {
     const guestId = searchParams.get('guest_id')
     if (!guestId) return
@@ -113,7 +123,6 @@ function CheckInPageInner() {
       birth_date: g.birth_date ?? '',
       phone: g.phone ?? '',
       email: g.email ?? '',
-      company_name: g.company ?? '',
     }))
     setStep('form')
   }
@@ -124,15 +133,26 @@ function CheckInPageInner() {
   }
 
   const selectedRoom = rooms.find(r => r.id === form.room_id)
-  const roomValue = selectedRoom
+  const baseRoomValue = selectedRoom
     ? (form.occupancy === 'individual'
         ? selectedRoom.room_types?.individual_price
         : selectedRoom.room_types?.duplo_price) ?? 0
     : 0
+  const roomValue = form.discount_applied ? Math.round(baseRoomValue * 0.9) : baseRoomValue
   const amountDue = roomValue - Number(form.amount_paid_reservation)
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) {
-    setForm(prev => ({ ...prev, [e.target.name]: e.target.value }))
+    const { name, value } = e.target
+    setForm(prev => ({
+      ...prev,
+      [name]: value,
+      // Ao trocar de empresa, sugerir o desconto se for cliente corrente
+      ...(name === 'company_id'
+        ? { discount_applied: companies.find(c => c.id === value)?.default_discount ?? false }
+        : {}),
+      // Ao mudar para "conta própria", limpar empresa e desconto
+      ...(name === 'billed_to' && value === 'proprio' ? { company_id: '', discount_applied: false } : {}),
+    }))
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -143,7 +163,6 @@ function CheckInPageInner() {
     let guestId = existingGuestId
 
     if (!guestId) {
-      // Hóspede novo — criar registo
       const { data: guest, error: guestError } = await supabase
         .from('guests')
         .insert({
@@ -155,7 +174,6 @@ function CheckInPageInner() {
           birth_date: form.birth_date || null,
           phone: form.phone,
           email: form.email,
-          company: form.billed_to === 'empresa' ? form.company_name : null,
         })
         .select()
         .single()
@@ -163,18 +181,13 @@ function CheckInPageInner() {
       if (guestError) { alert('Erro ao criar hóspede: ' + guestError.message); setSaving(false); return }
       guestId = guest.id
     } else {
-      // Hóspede existente — actualizar dados que possam ter mudado
       await supabase
         .from('guests')
-        .update({
-          phone: form.phone,
-          email: form.email,
-          company: form.billed_to === 'empresa' ? form.company_name : null,
-        })
+        .update({ phone: form.phone, email: form.email })
         .eq('id', guestId)
     }
 
-    const { error: stayError } = await supabase
+    const { data: newStay, error: stayError } = await supabase
       .from('stays')
       .insert({
         property_id: PROPERTY_ID,
@@ -186,14 +199,31 @@ function CheckInPageInner() {
         vehicle_color: form.vehicle_color || null,
         check_out_planned_at: form.check_out_planned_at || null,
         room_value: roomValue,
+        base_room_value: form.discount_applied ? baseRoomValue : null,
         amount_paid_reservation: Number(form.amount_paid_reservation),
         amount_due: amountDue,
         checked_in_by: staffId,
         billed_to: form.billed_to,
-        company_name: form.billed_to === 'empresa' ? form.company_name : null,
+        company_id: form.billed_to === 'empresa' ? (form.company_id || null) : null,
+        discount_applied: form.billed_to === 'empresa' ? form.discount_applied : false,
       })
+      .select()
+      .single()
 
     if (stayError) { alert('Erro ao criar estadia: ' + stayError.message); setSaving(false); return }
+
+    // Se houve valor pago no check-in, regista o pagamento com método e banco
+    if (Number(form.amount_paid_reservation) > 0) {
+      await supabase.from('payments').insert({
+        property_id: PROPERTY_ID,
+        source_type: 'stay',
+        source_id: newStay.id,
+        amount: Number(form.amount_paid_reservation),
+        method: form.payment_method,
+        bank_name: form.payment_method === 'tpa' ? form.bank_name : null,
+        recorded_by: staffId,
+      })
+    }
 
     setSuccess(true)
     setSaving(false)
@@ -282,7 +312,6 @@ function CheckInPageInner() {
             </div>
           )}
 
-          {/* Quarto e ocupação */}
           <div className="card space-y-4">
             <h2 className="text-xs font-bold text-ink-muted uppercase tracking-wide">Quarto</h2>
             <div className="grid grid-cols-2 gap-4">
@@ -307,7 +336,15 @@ function CheckInPageInner() {
             </div>
             {selectedRoom && (
               <div className="grid grid-cols-3 gap-3 text-sm bg-surface-muted rounded-lg p-3">
-                <div><p className="text-ink-light text-xs">Preço/noite</p><p className="font-semibold">{roomValue.toLocaleString('pt-AO')} Kz</p></div>
+                <div>
+                  <p className="text-ink-light text-xs">Preço/noite</p>
+                  <p className="font-semibold">
+                    {form.discount_applied && (
+                      <span className="line-through text-ink-light font-normal mr-1">{baseRoomValue.toLocaleString('pt-AO')}</span>
+                    )}
+                    {roomValue.toLocaleString('pt-AO')} Kz
+                  </p>
+                </div>
                 <div><p className="text-ink-light text-xs">Pago na reserva</p><p className="font-semibold">{Number(form.amount_paid_reservation).toLocaleString('pt-AO')} Kz</p></div>
                 <div><p className="text-ink-light text-xs">Valor a pagar</p><p className="font-bold text-brand-500">{amountDue.toLocaleString('pt-AO')} Kz</p></div>
               </div>
@@ -322,9 +359,31 @@ function CheckInPageInner() {
                 <input type="number" name="amount_paid_reservation" className="input" value={form.amount_paid_reservation} onChange={handleChange} min="0"/>
               </div>
             </div>
+            {Number(form.amount_paid_reservation) > 0 && (
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="label">Método de pagamento</label>
+                  <select name="payment_method" className="input" value={form.payment_method} onChange={handleChange}>
+                    <option value="numerario">Numerário</option>
+                    <option value="tpa">TPA</option>
+                    <option value="transferencia">Transferência</option>
+                  </select>
+                </div>
+                {form.payment_method === 'tpa' && (
+                  <div>
+                    <label className="label">Banco do TPA</label>
+                    <select name="bank_name" required className="input" value={form.bank_name} onChange={handleChange}>
+                      <option value="">Seleccionar banco</option>
+                      <option value="BIC">BIC</option>
+                      <option value="BFA">BFA</option>
+                      <option value="BAI">BAI</option>
+                    </select>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
-          {/* Dados do hóspede */}
           <div className="card space-y-4">
             <h2 className="text-xs font-bold text-ink-muted uppercase tracking-wide">Dados do Hóspede</h2>
             <div className="grid grid-cols-2 gap-4">
@@ -372,27 +431,42 @@ function CheckInPageInner() {
             </div>
           </div>
 
-          {/* Facturação */}
           <div className="card space-y-4">
             <h2 className="text-xs font-bold text-ink-muted uppercase tracking-wide">Facturação</h2>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="label">Pagamento</label>
-                <select name="billed_to" className="input" value={form.billed_to} onChange={handleChange}>
-                  <option value="proprio">Conta própria</option>
-                  <option value="empresa">A crédito — em nome de empresa</option>
-                </select>
-              </div>
-              {form.billed_to === 'empresa' && (
-                <div>
-                  <label className="label">Nome da empresa</label>
-                  <input type="text" name="company_name" className="input" placeholder="Ex: Empresa, Lda" value={form.company_name} onChange={handleChange}/>
-                </div>
-              )}
+            <div>
+              <label className="label">Pagamento</label>
+              <select name="billed_to" className="input" value={form.billed_to} onChange={handleChange}>
+                <option value="proprio">Conta própria</option>
+                <option value="empresa">A crédito — em nome de empresa</option>
+              </select>
             </div>
+
+            {form.billed_to === 'empresa' && (
+              <>
+                <div>
+                  <label className="label">Empresa</label>
+                  <select name="company_id" required className="input" value={form.company_id} onChange={handleChange}>
+                    <option value="">Seleccionar empresa</option>
+                    {companies.map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                  {companies.length === 0 && (
+                    <p className="text-xs text-ink-muted mt-1">Nenhuma empresa registada ainda — gerir em Empresas.</p>
+                  )}
+                </div>
+                <label className="flex items-center gap-2 text-sm text-ink">
+                  <input
+                    type="checkbox"
+                    checked={form.discount_applied}
+                    onChange={e => setForm(prev => ({ ...prev, discount_applied: e.target.checked }))}
+                  />
+                  Aplicar desconto de 10% (cliente corrente)
+                </label>
+              </>
+            )}
           </div>
 
-          {/* Viatura */}
           <div className="card space-y-4">
             <h2 className="text-xs font-bold text-ink-muted uppercase tracking-wide">Viatura (opcional)</h2>
             <div className="grid grid-cols-3 gap-4">
@@ -411,7 +485,11 @@ function CheckInPageInner() {
             </div>
           </div>
 
-          <button type="submit" disabled={saving || !form.room_id || !form.full_name} className="btn-primary w-full py-3">
+          <button
+            type="submit"
+            disabled={saving || !form.room_id || !form.full_name || (form.billed_to === 'empresa' && !form.company_id) || (Number(form.amount_paid_reservation) > 0 && form.payment_method === 'tpa' && !form.bank_name)}
+            className="btn-primary w-full py-3"
+          >
             {saving ? 'A registar...' : 'Confirmar Check-in'}
           </button>
         </form>

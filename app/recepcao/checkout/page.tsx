@@ -21,13 +21,15 @@ function sourceLabel(source: string) {
   return labels[source] ?? source
 }
 
-function methodLabel(method: string) {
+function methodLabel(method: string, bank?: string | null) {
   const labels: Record<string, string> = {
     numerario: 'Numerário',
     tpa: 'TPA',
     transferencia: 'Transferência',
   }
-  return labels[method] ?? method
+  const base = labels[method] ?? method
+  if (method === 'tpa' && bank) return `${base} ${bank}`
+  return base
 }
 
 type ActiveStay = {
@@ -37,9 +39,10 @@ type ActiveStay = {
   amount_paid_reservation: number
   check_in_at: string
   billed_to: string
-  company_name: string | null
+  company_id?: string
   rooms: { number: string; room_types: { name: string } }
   guests: { full_name: string; surname: string | null; document_number: string | null }
+  companies?: { name: string }
 }
 
 export default function CheckOutPage() {
@@ -59,9 +62,12 @@ export default function CheckOutPage() {
 
   const [newPaymentAmount, setNewPaymentAmount] = useState('')
   const [newPaymentMethod, setNewPaymentMethod] = useState('numerario')
+  const [newPaymentBank, setNewPaymentBank] = useState('BIC')
   const [newPaymentSource, setNewPaymentSource] = useState('stay')
   const [savingPayment, setSavingPayment] = useState(false)
+
   const [settleMethod, setSettleMethod] = useState('numerario')
+  const [settleBank, setSettleBank] = useState('BIC')
   const [settling, setSettling] = useState(false)
 
   const [staffId, setStaffId] = useState('')
@@ -75,39 +81,12 @@ export default function CheckOutPage() {
 
   useEffect(() => {
     const supabase = createClient()
-    supabase.from('minibar_products').select('id, name, price').eq('property_id', PROPERTY_ID).eq('active', true).order('name')
-      .then(({ data }) => setMinibarProducts(data ?? []))
-  }, [])
-
-  async function registarConsumoFrigobar() {
-    if (!selectedMinibarProductId || !stay) return
-    setSavingMinibar(true)
-    const supabase = createClient()
-    const product = minibarProducts.find(p => p.id === selectedMinibarProductId)
-    if (!product) { setSavingMinibar(false); return }
-
-    const { error } = await supabase.from('minibar_consumptions').insert({
-      property_id: PROPERTY_ID,
-      stay_id: stay.id,
-      product_id: product.id,
-      quantity: Number(minibarQty),
-      unit_price: product.price,
-      recorded_by: staffId,
-    })
-    if (error) { alert('Erro: ' + error.message); setSavingMinibar(false); return }
-
-    setMinibarTotal(prev => prev + product.price * Number(minibarQty))
-    setSelectedMinibarProductId('')
-    setMinibarQty('1')
-    setSavingMinibar(false)
-  }
-
-  useEffect(() => {
-    const supabase = createClient()
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!session) { router.push('/auth/login'); return }
       setStaffId(session.user.id)
     })
+    supabase.from('minibar_products').select('id, name, price').eq('property_id', PROPERTY_ID).eq('active', true).order('name')
+      .then(({ data }) => setMinibarProducts(data ?? []))
   }, [router])
 
   async function handleSearch(e: React.FormEvent) {
@@ -117,10 +96,9 @@ export default function CheckOutPage() {
     setStay(null)
     const supabase = createClient()
 
-    // Pesquisa por número de quarto OU por nome/BI do hóspede
     const { data } = await supabase
       .from('stays')
-      .select('*, rooms(number, room_types(name)), guests(full_name, surname, document_number)')
+      .select('*, rooms(number, room_types(name)), guests(full_name, surname, document_number), companies(name)')
       .eq('property_id', PROPERTY_ID)
       .eq('status', 'ativo')
 
@@ -147,7 +125,7 @@ export default function CheckOutPage() {
       supabase.from('restaurant_sales').select('value').eq('stay_id', s.id).eq('guest_type', 'hospede'),
       supabase.from('bar_sales').select('bar_sale_items(subtotal)').eq('stay_id', s.id).eq('guest_type', 'hospede'),
       supabase.from('minibar_consumptions').select('total').eq('stay_id', s.id),
-      supabase.from('payments').select('amount, method, source_type, paid_at').eq('source_id', s.id).order('paid_at', { ascending: false }),
+      supabase.from('payments').select('amount, method, bank_name, source_type, paid_at').eq('source_id', s.id).order('paid_at', { ascending: false }),
     ])
 
     setLaundryTotal((laundry ?? []).reduce((sum, r) => sum + Number(r.value), 0))
@@ -219,6 +197,29 @@ export default function CheckOutPage() {
   const totalPaid = Number(stay.amount_paid_reservation) + paymentsMade
   const saldoPendente = subtotal - totalPaid
 
+  async function registarConsumoFrigobar() {
+    if (!selectedMinibarProductId || !stay) return
+    setSavingMinibar(true)
+    const supabase = createClient()
+    const product = minibarProducts.find(p => p.id === selectedMinibarProductId)
+    if (!product) { setSavingMinibar(false); return }
+
+    const { error } = await supabase.from('minibar_consumptions').insert({
+      property_id: PROPERTY_ID,
+      stay_id: stay.id,
+      product_id: product.id,
+      quantity: Number(minibarQty),
+      unit_price: product.price,
+      recorded_by: staffId,
+    })
+    if (error) { alert('Erro: ' + error.message); setSavingMinibar(false); return }
+
+    setMinibarTotal(prev => prev + product.price * Number(minibarQty))
+    setSelectedMinibarProductId('')
+    setMinibarQty('1')
+    setSavingMinibar(false)
+  }
+
   async function registarPagamento() {
     if (!newPaymentAmount || Number(newPaymentAmount) <= 0 || !stay) return
     setSavingPayment(true)
@@ -229,6 +230,7 @@ export default function CheckOutPage() {
       source_id: stay.id,
       amount: Number(newPaymentAmount),
       method: newPaymentMethod,
+      bank_name: newPaymentMethod === 'tpa' ? newPaymentBank : null,
       recorded_by: staffId,
     }).select().single()
     if (error) { alert('Erro ao registar pagamento: ' + error.message); setSavingPayment(false); return }
@@ -239,10 +241,31 @@ export default function CheckOutPage() {
     setSavingPayment(false)
   }
 
+  async function liquidarSaldo() {
+    if (!stay || saldoPendente <= 0) return
+    setSettling(true)
+    const supabase = createClient()
+    const { data, error } = await supabase.from('payments').insert({
+      property_id: PROPERTY_ID,
+      source_type: 'stay',
+      source_id: stay.id,
+      amount: saldoPendente,
+      method: settleMethod,
+      bank_name: settleMethod === 'tpa' ? settleBank : null,
+      recorded_by: staffId,
+    }).select().single()
+    if (error) { alert('Erro ao registar pagamento: ' + error.message); setSettling(false); return }
+    setPaymentsList(prev => [data, ...prev])
+    setPaymentsMade(prev => prev + saldoPendente)
+    setSettling(false)
+  }
+
   async function gerarEGuardarDocumento() {
     if (!stay) return
     const supabase = createClient()
     const now = new Date()
+
+    const { data: invoiceNumber } = await supabase.rpc('next_checkout_invoice_number')
 
     const doc = new jsPDF()
     const pageWidth = doc.internal.pageSize.getWidth()
@@ -261,6 +284,12 @@ export default function CheckOutPage() {
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(10)
     doc.text('Documento de Check-in / Check-out', marginX, 23)
+    if (invoiceNumber) {
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(11)
+      doc.text(`Nº ${invoiceNumber}`, pageWidth - marginX, 15, { align: 'right' })
+      doc.setFont('helvetica', 'normal')
+    }
 
     let y = 44
 
@@ -275,7 +304,6 @@ export default function CheckOutPage() {
       doc.setFont('helvetica', 'normal')
       doc.setFontSize(10)
     }
-
     function row(label: string, value: string) {
       doc.setTextColor(...gray)
       doc.text(label, marginX, y)
@@ -283,7 +311,6 @@ export default function CheckOutPage() {
       doc.text(value, pageWidth - marginX, y, { align: 'right' })
       y += 6
     }
-
     function divider() {
       y += 2
       doc.setDrawColor(230, 230, 230)
@@ -317,7 +344,7 @@ export default function CheckOutPage() {
     paymentsList.forEach(p => {
       doc.setFontSize(9)
       doc.setTextColor(...gray)
-      doc.text(`${new Date(p.paid_at).toLocaleDateString('pt-PT')} — ${sourceLabel(p.source_type)} (${methodLabel(p.method)})`, marginX + 4, y)
+      doc.text(`${new Date(p.paid_at).toLocaleDateString('pt-PT')} — ${sourceLabel(p.source_type)} (${methodLabel(p.method, p.bank_name)})`, marginX + 4, y)
       doc.setTextColor(...dark)
       doc.text(`${Number(p.amount).toLocaleString('pt-AO')} Kz`, pageWidth - marginX, y, { align: 'right' })
       y += 5.5
@@ -328,11 +355,10 @@ export default function CheckOutPage() {
     row('Total pago', `${totalPaid.toLocaleString('pt-AO')} Kz`)
     doc.setFont('helvetica', 'normal')
     if (stay.billed_to === 'empresa') {
-      row('Facturação', `Crédito — ${stay.company_name || 'empresa não especificada'}`)
+      row('Facturação', `Crédito — ${stay.companies?.name || 'empresa não especificada'}`)
     }
     y += 4
 
-    // Caixa de saldo
     const saldoColor: [number, number, number] = saldoPendente > 0 ? [255, 251, 235] : [240, 253, 244]
     const saldoTextColor: [number, number, number] = saldoPendente > 0 ? [180, 83, 9] : [21, 128, 61]
     doc.setFillColor(...saldoColor)
@@ -344,11 +370,24 @@ export default function CheckOutPage() {
     doc.setTextColor(...saldoTextColor)
     doc.setFontSize(14)
     doc.text(`${saldoPendente.toLocaleString('pt-AO')} Kz`, pageWidth - marginX - 4, y + 10.5, { align: 'right' })
+    y += 30
 
+    // Linhas de assinatura — hóspede e rececionista
     const pageHeight = doc.internal.pageSize.getHeight()
+    const assinaturaY = Math.max(y, pageHeight - 55)
+    const colWidth = (pageWidth - marginX * 2 - 10) / 2
+
+    doc.setDrawColor(150, 150, 150)
+    doc.line(marginX, assinaturaY, marginX + colWidth, assinaturaY)
+    doc.line(marginX + colWidth + 10, assinaturaY, marginX + colWidth * 2 + 10, assinaturaY)
+
     doc.setFont('helvetica', 'normal')
-    doc.setFontSize(8)
+    doc.setFontSize(9)
     doc.setTextColor(...gray)
+    doc.text('Assinatura do Hóspede', marginX, assinaturaY + 6)
+    doc.text('Assinatura do Rececionista', marginX + colWidth + 10, assinaturaY + 6)
+
+    doc.setFontSize(8)
     doc.text(`Gerado em ${now.toLocaleString('pt-PT')} pelo sistema de gestão S&I Freitas`, marginX, pageHeight - 10)
 
     const blob = doc.output('blob')
@@ -367,26 +406,9 @@ export default function CheckOutPage() {
       property_id: PROPERTY_ID,
       stay_id: stay.id,
       pdf_url: path,
+      invoice_number: invoiceNumber ?? null,
       generated_at: now.toISOString(),
     }, { onConflict: 'stay_id' })
-  }
-
-  async function liquidarSaldo() {
-    if (!stay || saldoPendente <= 0) return
-    setSettling(true)
-    const supabase = createClient()
-    const { data, error } = await supabase.from('payments').insert({
-      property_id: PROPERTY_ID,
-      source_type: 'stay',
-      source_id: stay.id,
-      amount: saldoPendente,
-      method: settleMethod,
-      recorded_by: staffId,
-    }).select().single()
-    if (error) { alert('Erro ao registar pagamento: ' + error.message); setSettling(false); return }
-    setPaymentsList(prev => [data, ...prev])
-    setPaymentsMade(prev => prev + saldoPendente)
-    setSettling(false)
   }
 
   async function finalizarHospedagem() {
@@ -411,10 +433,8 @@ export default function CheckOutPage() {
 
     if (error) { alert('Erro ao finalizar check-out: ' + error.message); setFinalizing(false); return }
 
-    // Gera e guarda o documento de check-in + check-out no arquivo
     await gerarEGuardarDocumento()
 
-    // O trigger da base de dados já move o quarto automaticamente para "limpeza"
     setDone(true)
     setFinalizing(false)
     setTimeout(() => router.push('/quartos'), 1800)
@@ -459,7 +479,6 @@ export default function CheckOutPage() {
               <div className="flex justify-between items-center"><span className="text-ink-muted flex items-center gap-1.5"><ShirtIcon size={13}/> Lavandaria</span><span className="font-medium">{laundryTotal.toLocaleString('pt-AO')} Kz</span></div>
               <div className="flex justify-between items-center"><span className="text-ink-muted flex items-center gap-1.5"><UtensilsCrossed size={13}/> Restaurante</span><span className="font-medium">{restaurantTotal.toLocaleString('pt-AO')} Kz</span></div>
               <div className="flex justify-between items-center"><span className="text-ink-muted flex items-center gap-1.5"><Wine size={13}/> Bar</span><span className="font-medium">{barTotal.toLocaleString('pt-AO')} Kz</span></div>
-              <div className="flex justify-between items-center"><span className="text-ink-muted flex items-center gap-1.5"><Wine size={13}/> Frigobar</span><span className="font-medium">{minibarTotal.toLocaleString('pt-AO')} Kz</span></div>
               <div className="flex justify-between pt-2 border-t border-border font-semibold"><span>Subtotal</span><span>{subtotal.toLocaleString('pt-AO')} Kz</span></div>
             </div>
 
@@ -498,7 +517,7 @@ export default function CheckOutPage() {
                   {paymentsList.map((p, i) => (
                     <div key={i} className="flex justify-between text-xs pl-2">
                       <span className="text-ink-muted">
-                        {new Date(p.paid_at).toLocaleDateString('pt-PT')} · {sourceLabel(p.source_type)} · {methodLabel(p.method)}
+                        {new Date(p.paid_at).toLocaleDateString('pt-PT')} · {sourceLabel(p.source_type)} · {methodLabel(p.method, p.bank_name)}
                       </span>
                       <span className="font-medium">{Number(p.amount).toLocaleString('pt-AO')} Kz</span>
                     </div>
@@ -519,11 +538,18 @@ export default function CheckOutPage() {
                   <option value="bar">Bar</option>
                   <option value="minibar">Frigobar</option>
                 </select>
-                <select className="input w-36" value={newPaymentMethod} onChange={e => setNewPaymentMethod(e.target.value)}>
+                <select className="input w-32" value={newPaymentMethod} onChange={e => setNewPaymentMethod(e.target.value)}>
                   <option value="numerario">Numerário</option>
                   <option value="tpa">TPA</option>
                   <option value="transferencia">Transferência</option>
                 </select>
+                {newPaymentMethod === 'tpa' && (
+                  <select className="input w-24" value={newPaymentBank} onChange={e => setNewPaymentBank(e.target.value)}>
+                    <option value="BIC">BIC</option>
+                    <option value="BFA">BFA</option>
+                    <option value="BAI">BAI</option>
+                  </select>
+                )}
               </div>
               <div className="flex gap-2">
                 <input
@@ -557,15 +583,18 @@ export default function CheckOutPage() {
               <div className="mt-3 pt-3 border-t border-amber-200 space-y-2">
                 <p className="text-xs text-amber-800">Registar o pagamento deste saldo:</p>
                 <div className="flex gap-2">
-                  <select
-                    className="input flex-1"
-                    value={settleMethod}
-                    onChange={e => setSettleMethod(e.target.value)}
-                  >
+                  <select className="input flex-1" value={settleMethod} onChange={e => setSettleMethod(e.target.value)}>
                     <option value="numerario">Numerário</option>
                     <option value="tpa">TPA</option>
                     <option value="transferencia">Transferência</option>
                   </select>
+                  {settleMethod === 'tpa' && (
+                    <select className="input w-24" value={settleBank} onChange={e => setSettleBank(e.target.value)}>
+                      <option value="BIC">BIC</option>
+                      <option value="BFA">BFA</option>
+                      <option value="BAI">BAI</option>
+                    </select>
+                  )}
                   <button
                     type="button"
                     onClick={liquidarSaldo}
@@ -581,7 +610,7 @@ export default function CheckOutPage() {
 
           {stay.billed_to === 'empresa' && (
             <div className="card border-brand-200 bg-brand-50 text-sm text-brand-700">
-              Facturação a crédito — {stay.company_name || 'empresa não especificada'}
+              Facturação a crédito — {stay.companies?.name || 'empresa não especificada'}
             </div>
           )}
 

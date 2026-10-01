@@ -108,7 +108,7 @@ export default function BarVendaPage() {
   const canFinalize = cart.length > 0 &&
     !!attendantId &&
     (guestType === 'nao_hospede' ? true : !!selectedStay) &&
-    (payingNow ? Number(amountReceived) >= total : true)
+    (payingNow ? (paymentMethod === 'numerario' ? Number(amountReceived) >= total : true) : true)
 
   async function finalizeSale() {
     setSaving(true)
@@ -121,9 +121,10 @@ export default function BarVendaPage() {
         guest_type: guestType,
         stay_id: guestType === 'hospede' ? selectedStay?.id : null,
         guest_name: guestType === 'nao_hospede' ? (guestName || null) : null,
-        amount_received: payingNow ? Number(amountReceived) : null,
-        change_given: payingNow ? troco : null,
+        amount_received: payingNow ? (paymentMethod === 'numerario' ? Number(amountReceived) : total) : null,
+        change_given: payingNow && paymentMethod === 'numerario' ? troco : null,
         payment_method: payingNow ? paymentMethod : null,
+        bank_name: (payingNow && paymentMethod === 'tpa') ? paymentBank : null,
         recorded_by: attendantId,
       })
       .select()
@@ -336,11 +337,20 @@ export default function BarVendaPage() {
                   </select>
                 )}
               </div>
-              <input type="number" min="0" className="input" placeholder="Valor entregue (Kz)" value={amountReceived} onChange={e => setAmountReceived(e.target.value)} />
-              {amountReceived && Number(amountReceived) >= total && (
+              {paymentMethod === 'numerario' ? (
+                <>
+                  <input type="number" min="0" className="input" placeholder="Valor entregue (Kz)" value={amountReceived} onChange={e => setAmountReceived(e.target.value)} />
+                  {amountReceived && Number(amountReceived) >= total && (
+                    <div className="flex justify-between text-sm bg-surface-muted rounded-lg p-2.5">
+                      <span className="text-ink-muted">Troco</span>
+                      <span className="font-bold text-brand-500">{troco.toLocaleString('pt-AO')} Kz</span>
+                    </div>
+                  )}
+                </>
+              ) : (
                 <div className="flex justify-between text-sm bg-surface-muted rounded-lg p-2.5">
-                  <span className="text-ink-muted">Troco</span>
-                  <span className="font-bold text-brand-500">{troco.toLocaleString('pt-AO')} Kz</span>
+                  <span className="text-ink-muted">Valor a cobrar</span>
+                  <span className="font-bold text-brand-500">{total.toLocaleString('pt-AO')} Kz</span>
                 </div>
               )}
             </>

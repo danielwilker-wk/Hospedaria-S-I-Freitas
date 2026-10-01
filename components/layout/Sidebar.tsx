@@ -4,7 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import {
-  LayoutDashboard, BedDouble, ClipboardList, UserSearch,
+  LayoutDashboard, BedDouble, ClipboardList, UserSearch, Search,
   LogIn, LogOut as LogOutIcon, UtensilsCrossed, Wine, Package,
   Sparkles, Wrench, FileText, Archive, BarChart3, Users,
   Building2, ChevronDown, LogOut, CalendarDays, Trophy,
@@ -25,7 +25,8 @@ const nav: NavItem[] = [
     label: 'Receção', icon: ClipboardList, basePath: '/recepcao',
     children: [
       { href: '/recepcao/reservas',  label: 'Reservas',  icon: CalendarDays },
-      { href: '/recepcao/hospedes',  label: 'Hóspedes',  icon: UserSearch },
+      { href: '/recepcao/hospedes/ativos', label: 'Hóspedes Activos', icon: UserSearch },
+      { href: '/recepcao/hospedes',        label: 'Pesquisar Hóspede', icon: Search },
       { href: '/recepcao/checkin',   label: 'Check-in',  icon: LogIn },
       { href: '/recepcao/checkout',  label: 'Check-out', icon: LogOutIcon },
     ],

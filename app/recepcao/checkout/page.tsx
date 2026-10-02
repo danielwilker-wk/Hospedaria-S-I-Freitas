@@ -194,7 +194,9 @@ export default function CheckOutPage() {
   const nights = Math.max(1, Math.ceil((Date.now() - new Date(stay.check_in_at).getTime()) / (1000 * 60 * 60 * 24)))
   const roomTotal = Number(stay.room_value) * nights
   const subtotal = roomTotal + laundryTotal + restaurantTotal + barTotal + minibarTotal
-  const totalPaid = Number(stay.amount_paid_reservation) + paymentsMade
+  // O pagamento do check-in já vem incluído em paymentsMade (tabela payments),
+  // por isso não se soma stay.amount_paid_reservation aqui — evita duplicar o valor.
+  const totalPaid = paymentsMade
   const saldoPendente = subtotal - totalPaid
 
   async function registarConsumoFrigobar() {
@@ -340,7 +342,6 @@ export default function CheckOutPage() {
     divider()
 
     sectionTitle('Pagamentos')
-    row('Pago no check-in', `${Number(stay.amount_paid_reservation).toLocaleString('pt-AO')} Kz`)
     paymentsList.forEach(p => {
       doc.setFontSize(9)
       doc.setTextColor(...gray)
@@ -509,11 +510,9 @@ export default function CheckOutPage() {
               <Wallet size={14}/> Pagamentos
             </h2>
             <div className="space-y-2 text-sm">
-              <div className="flex justify-between"><span className="text-ink-muted">Pago no check-in</span><span className="font-medium">{Number(stay.amount_paid_reservation).toLocaleString('pt-AO')} Kz</span></div>
-
-              {paymentsList.length > 0 && (
+              {paymentsList.length > 0 ? (
                 <div className="space-y-1 pt-1">
-                  <p className="text-xs text-ink-light">Durante a estadia:</p>
+                  <p className="text-xs text-ink-light">Pagamentos registados:</p>
                   {paymentsList.map((p, i) => (
                     <div key={i} className="flex justify-between text-xs pl-2">
                       <span className="text-ink-muted">
@@ -523,6 +522,8 @@ export default function CheckOutPage() {
                     </div>
                   ))}
                 </div>
+              ) : (
+                <p className="text-xs text-ink-muted">Ainda não há pagamentos registados.</p>
               )}
 
               <div className="flex justify-between pt-2 border-t border-border font-semibold"><span>Total pago</span><span>{totalPaid.toLocaleString('pt-AO')} Kz</span></div>

@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { LogOut, Search, CheckCircle, Wallet, ShirtIcon, UtensilsCrossed, Wine, FileDown, Plus } from 'lucide-react'
+import { LogOut, Search, CheckCircle, Wallet, ShirtIcon, UtensilsCrossed, Wine, FileDown, Plus, Building2 } from 'lucide-react'
 import jsPDF from 'jspdf'
 
 const PROPERTY_ID = '00000000-0000-0000-0000-000000000001'
@@ -12,24 +12,30 @@ type MinibarProduct = { id: string; name: string; price: number }
 
 function sourceLabel(source: string) {
   const labels: Record<string, string> = {
-    stay: 'Hospedagem',
-    laundry: 'Lavandaria',
-    restaurant: 'Restaurante',
-    bar: 'Bar',
-    minibar: 'Frigobar',
+    stay: 'Hospedagem', laundry: 'Lavandaria',
+    restaurant: 'Restaurante', bar: 'Bar', minibar: 'Frigobar',
   }
   return labels[source] ?? source
 }
 
 function methodLabel(method: string, bank?: string | null) {
   const labels: Record<string, string> = {
-    numerario: 'Numerário',
-    tpa: 'TPA',
-    transferencia: 'Transferência',
+    numerario: 'Numerário', tpa: 'TPA', transferencia: 'Transferência',
   }
   const base = labels[method] ?? method
-  if (method === 'tpa' && bank) return `${base} ${bank}`
-  return base
+  return method === 'tpa' && bank ? `${base} ${bank}` : base
+}
+
+// Calcula o número de diárias entre check-in e check-out previsto
+// Lógica: cada diária começa às 12h e termina às 11h do dia seguinte
+// Se não houver check-out previsto, usa a data actual
+function calcDiarias(checkIn: string, checkOutPlanned?: string | null): number {
+  const inDate = new Date(checkIn)
+  const outDate = checkOutPlanned ? new Date(checkOutPlanned) : new Date()
+  const inDay = new Date(inDate.getFullYear(), inDate.getMonth(), inDate.getDate())
+  const outDay = new Date(outDate.getFullYear(), outDate.getMonth(), outDate.getDate())
+  const diff = Math.round((outDay.getTime() - inDay.getTime()) / (1000 * 60 * 60 * 24))
+  return Math.max(1, diff)
 }
 
 type ActiveStay = {
@@ -38,6 +44,7 @@ type ActiveStay = {
   room_value: number
   amount_paid_reservation: number
   check_in_at: string
+  check_out_planned_at?: string | null
   billed_to: string
   company_id?: string
   rooms: { number: string; room_types: { name: string } }
@@ -85,7 +92,8 @@ export default function CheckOutPage() {
       if (!session) { router.push('/auth/login'); return }
       setStaffId(session.user.id)
     })
-    supabase.from('minibar_products').select('id, name, price').eq('property_id', PROPERTY_ID).eq('active', true).order('name')
+    supabase.from('minibar_products').select('id, name, price')
+      .eq('property_id', PROPERTY_ID).eq('active', true).order('name')
       .then(({ data }) => setMinibarProducts(data ?? []))
   }, [router])
 
@@ -95,13 +103,11 @@ export default function CheckOutPage() {
     setSearching(true)
     setStay(null)
     const supabase = createClient()
-
     const { data } = await supabase
       .from('stays')
       .select('*, rooms(number, room_types(name)), guests(full_name, surname, document_number), companies(name)')
       .eq('property_id', PROPERTY_ID)
       .eq('status', 'ativo')
-
     const q = query.trim().toLowerCase()
     const filtered = (data ?? []).filter((s: any) =>
       s.rooms?.number?.toLowerCase().includes(q) ||
@@ -109,7 +115,6 @@ export default function CheckOutPage() {
       s.guests?.surname?.toLowerCase().includes(q) ||
       s.guests?.document_number?.toLowerCase().includes(q)
     )
-
     setResults(filtered as ActiveStay[])
     setSearching(false)
   }
@@ -119,15 +124,13 @@ export default function CheckOutPage() {
     setResults([])
     setLoadingBreakdown(true)
     const supabase = createClient()
-
     const [{ data: laundry }, { data: restaurant }, { data: bar }, { data: minibar }, { data: payments }] = await Promise.all([
       supabase.from('laundry_records').select('value').eq('stay_id', s.id),
       supabase.from('restaurant_sales').select('value').eq('stay_id', s.id).eq('guest_type', 'hospede'),
       supabase.from('bar_sales').select('bar_sale_items(subtotal)').eq('stay_id', s.id).eq('guest_type', 'hospede'),
       supabase.from('minibar_consumptions').select('total').eq('stay_id', s.id),
-      supabase.from('payments').select('amount, method, bank_name, source_type, paid_at').eq('source_id', s.id).order('paid_at', { ascending: false }),
+      supabase.from('payments').select('amount, method, bank_name, source_type, paid_at, id').eq('source_id', s.id).order('paid_at', { ascending: false }),
     ])
-
     setLaundryTotal((laundry ?? []).reduce((sum, r) => sum + Number(r.value), 0))
     setRestaurantTotal((restaurant ?? []).reduce((sum, r) => sum + Number(r.value), 0))
     setBarTotal((bar ?? []).reduce((sum: number, s: any) => sum + (s.bar_sale_items ?? []).reduce((si: number, it: any) => si + Number(it.subtotal), 0), 0))
@@ -146,44 +149,32 @@ export default function CheckOutPage() {
           </h1>
           <p className="text-sm text-ink-muted mt-0.5">Procurar por nº de quarto, nome ou BI do hóspede</p>
         </div>
-
         <form onSubmit={handleSearch} className="card flex gap-3">
           <div className="relative flex-1">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-light" />
-            <input
-              type="text"
-              className="input pl-9"
-              placeholder="Ex: 12, Manuel Mendes ou nº de BI..."
-              value={query}
-              onChange={e => setQuery(e.target.value)}
-              autoFocus
-            />
+            <input type="text" className="input pl-9" placeholder="Ex: 12, Manuel Mendes ou nº de BI..."
+              value={query} onChange={e => setQuery(e.target.value)} autoFocus />
           </div>
           <button type="submit" className="btn-primary px-6" disabled={searching}>
             {searching ? 'A procurar...' : 'Procurar'}
           </button>
         </form>
-
         {results.length > 0 && (
           <div className="card divide-y divide-border">
             {results.map(s => (
-              <button
-                key={s.id}
-                onClick={() => selectStay(s)}
-                className="w-full text-left py-3 first:pt-0 last:pb-0 flex items-center justify-between hover:opacity-70 transition"
-              >
+              <button key={s.id} onClick={() => selectStay(s)}
+                className="w-full text-left py-3 first:pt-0 last:pb-0 flex items-center justify-between hover:opacity-70 transition">
                 <div>
                   <p className="font-medium text-ink">{s.guests?.full_name} {s.guests?.surname}</p>
                   <p className="text-xs text-ink-muted">Quarto {s.rooms?.number} — {s.rooms?.room_types?.name}</p>
                 </div>
                 <span className="text-xs px-2.5 py-1 rounded-full bg-surface-muted text-ink-light">
-                  desde {new Date(s.check_in_at).toLocaleDateString('pt-PT')}
+                  desde {new Date(s.check_in_at).toLocaleDateString('pt-AO')}
                 </span>
               </button>
             ))}
           </div>
         )}
-
         {results.length === 0 && query && !searching && (
           <p className="text-sm text-ink-muted text-center py-4">Nenhuma estadia activa encontrada.</p>
         )}
@@ -191,13 +182,13 @@ export default function CheckOutPage() {
     )
   }
 
-  const nights = Math.max(1, Math.ceil((Date.now() - new Date(stay.check_in_at).getTime()) / (1000 * 60 * 60 * 24)))
-  const roomTotal = Number(stay.room_value) * nights
+  // ── Cálculos principais ──────────────────────────────────────
+  const diarias = calcDiarias(stay.check_in_at, stay.check_out_planned_at)
+  const roomTotal = Number(stay.room_value) * diarias
   const subtotal = roomTotal + laundryTotal + restaurantTotal + barTotal + minibarTotal
-  // O pagamento do check-in já vem incluído em paymentsMade (tabela payments),
-  // por isso não se soma stay.amount_paid_reservation aqui — evita duplicar o valor.
   const totalPaid = paymentsMade
   const saldoPendente = subtotal - totalPaid
+  const isCredito = stay.billed_to === 'empresa'
 
   async function registarConsumoFrigobar() {
     if (!selectedMinibarProductId || !stay) return
@@ -205,17 +196,12 @@ export default function CheckOutPage() {
     const supabase = createClient()
     const product = minibarProducts.find(p => p.id === selectedMinibarProductId)
     if (!product) { setSavingMinibar(false); return }
-
     const { error } = await supabase.from('minibar_consumptions').insert({
-      property_id: PROPERTY_ID,
-      stay_id: stay.id,
-      product_id: product.id,
-      quantity: Number(minibarQty),
-      unit_price: product.price,
-      recorded_by: staffId,
+      property_id: PROPERTY_ID, stay_id: stay.id,
+      product_id: product.id, quantity: Number(minibarQty),
+      unit_price: product.price, recorded_by: staffId,
     })
     if (error) { alert('Erro: ' + error.message); setSavingMinibar(false); return }
-
     setMinibarTotal(prev => prev + product.price * Number(minibarQty))
     setSelectedMinibarProductId('')
     setMinibarQty('1')
@@ -227,13 +213,9 @@ export default function CheckOutPage() {
     setSavingPayment(true)
     const supabase = createClient()
     const { data, error } = await supabase.from('payments').insert({
-      property_id: PROPERTY_ID,
-      source_type: newPaymentSource,
-      source_id: stay.id,
-      amount: Number(newPaymentAmount),
-      method: newPaymentMethod,
-      bank_name: newPaymentMethod === 'tpa' ? newPaymentBank : null,
-      recorded_by: staffId,
+      property_id: PROPERTY_ID, source_type: newPaymentSource, source_id: stay.id,
+      amount: Number(newPaymentAmount), method: newPaymentMethod,
+      bank_name: newPaymentMethod === 'tpa' ? newPaymentBank : null, recorded_by: staffId,
     }).select().single()
     if (error) { alert('Erro ao registar pagamento: ' + error.message); setSavingPayment(false); return }
     setPaymentsList(prev => [data, ...prev])
@@ -248,13 +230,9 @@ export default function CheckOutPage() {
     setSettling(true)
     const supabase = createClient()
     const { data, error } = await supabase.from('payments').insert({
-      property_id: PROPERTY_ID,
-      source_type: 'stay',
-      source_id: stay.id,
-      amount: saldoPendente,
-      method: settleMethod,
-      bank_name: settleMethod === 'tpa' ? settleBank : null,
-      recorded_by: staffId,
+      property_id: PROPERTY_ID, source_type: 'stay', source_id: stay.id,
+      amount: saldoPendente, method: settleMethod,
+      bank_name: settleMethod === 'tpa' ? settleBank : null, recorded_by: staffId,
     }).select().single()
     if (error) { alert('Erro ao registar pagamento: ' + error.message); setSettling(false); return }
     setPaymentsList(prev => [data, ...prev])
@@ -266,17 +244,17 @@ export default function CheckOutPage() {
     if (!stay) return
     const supabase = createClient()
     const now = new Date()
-
     const { data: invoiceNumber } = await supabase.rpc('next_checkout_invoice_number')
 
     const doc = new jsPDF()
     const pageWidth = doc.internal.pageSize.getWidth()
+    const pageHeight = doc.internal.pageSize.getHeight()
     const marginX = 14
     const brand: [number, number, number] = [234, 88, 12]
-    const brandLight: [number, number, number] = [255, 237, 213]
     const gray: [number, number, number] = [107, 114, 128]
     const dark: [number, number, number] = [31, 41, 55]
 
+    // Cabeçalho
     doc.setFillColor(...brand)
     doc.rect(0, 0, pageWidth, 32, 'F')
     doc.setTextColor(255, 255, 255)
@@ -285,7 +263,7 @@ export default function CheckOutPage() {
     doc.text('Hospedaria S&I Freitas', marginX, 15)
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(10)
-    doc.text('Documento de Check-in / Check-out', marginX, 23)
+    doc.text('Documento de Check-out', marginX, 23)
     if (invoiceNumber) {
       doc.setFont('helvetica', 'bold')
       doc.setFontSize(11)
@@ -324,118 +302,123 @@ export default function CheckOutPage() {
     row('Nome', `${stay.guests?.full_name} ${stay.guests?.surname ?? ''}`)
     row('Documento', stay.guests?.document_number ?? '—')
     row('Quarto', `${stay.rooms?.number} — ${stay.rooms?.room_types?.name}`)
-    row('Check-in', new Date(stay.check_in_at).toLocaleString('pt-PT'))
-    row('Check-out', now.toLocaleString('pt-PT'))
+    row('Check-in', new Date(stay.check_in_at).toLocaleDateString('pt-AO'))
+    row('Check-out', now.toLocaleDateString('pt-AO'))
+    if (isCredito) row('Facturação', `A crédito — ${stay.companies?.name || 'empresa'}`)
     divider()
 
     sectionTitle('Resumo da Conta')
-    row(`Hospedagem (${nights} ${nights === 1 ? 'noite' : 'noites'} × ${Number(stay.room_value).toLocaleString('pt-AO')} Kz)`, `${roomTotal.toLocaleString('pt-AO')} Kz`)
-    row('Lavandaria', `${laundryTotal.toLocaleString('pt-AO')} Kz`)
-    row('Restaurante', `${restaurantTotal.toLocaleString('pt-AO')} Kz`)
-    row('Bar', `${barTotal.toLocaleString('pt-AO')} Kz`)
-    row('Frigobar', `${minibarTotal.toLocaleString('pt-AO')} Kz`)
+    row(
+      `Hospedagem (${diarias} ${diarias === 1 ? 'diária' : 'diárias'} × ${Number(stay.room_value).toLocaleString('pt-AO')} Kz)`,
+      `${roomTotal.toLocaleString('pt-AO')} Kz`
+    )
+    if (laundryTotal > 0) row('Lavandaria', `${laundryTotal.toLocaleString('pt-AO')} Kz`)
+    if (restaurantTotal > 0) row('Restaurante', `${restaurantTotal.toLocaleString('pt-AO')} Kz`)
+    if (barTotal > 0) row('Bar', `${barTotal.toLocaleString('pt-AO')} Kz`)
+    if (minibarTotal > 0) row('Frigobar', `${minibarTotal.toLocaleString('pt-AO')} Kz`)
     doc.setDrawColor(220, 220, 220)
     doc.line(marginX, y - 2, pageWidth - marginX, y - 2)
     doc.setFont('helvetica', 'bold')
-    row('Subtotal', `${subtotal.toLocaleString('pt-AO')} Kz`)
+    row('Total', `${subtotal.toLocaleString('pt-AO')} Kz`)
     doc.setFont('helvetica', 'normal')
     divider()
 
-    sectionTitle('Pagamentos')
-    paymentsList.forEach(p => {
+    if (isCredito) {
+      // Cliente a crédito — secção diferente
+      sectionTitle('Facturação a Crédito')
+      doc.setFillColor(255, 237, 213)
+      doc.roundedRect(marginX, y, pageWidth - marginX * 2, 20, 2, 2, 'F')
+      doc.setTextColor(180, 83, 9)
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(11)
+      doc.text('Valor a facturar à empresa:', marginX + 4, y + 8)
+      doc.setFontSize(13)
+      doc.text(`${subtotal.toLocaleString('pt-AO')} Kz`, pageWidth - marginX - 4, y + 8, { align: 'right' })
+      doc.setFont('helvetica', 'normal')
       doc.setFontSize(9)
       doc.setTextColor(...gray)
-      doc.text(`${new Date(p.paid_at).toLocaleDateString('pt-PT')} — ${sourceLabel(p.source_type)} (${methodLabel(p.method, p.bank_name)})`, marginX + 4, y)
+      doc.text(`Empresa: ${stay.companies?.name || '—'}`, marginX + 4, y + 15)
+      y += 28
+      if (totalPaid > 0) {
+        doc.setFontSize(10)
+        doc.setTextColor(...dark)
+        row('Já pago', `${totalPaid.toLocaleString('pt-AO')} Kz`)
+        row('Valor a crédito', `${(subtotal - totalPaid).toLocaleString('pt-AO')} Kz`)
+      }
+    } else {
+      // Cliente normal — secção de pagamentos
+      sectionTitle('Pagamentos')
+      paymentsList.forEach(p => {
+        doc.setFontSize(9)
+        doc.setTextColor(...gray)
+        doc.text(`${new Date(p.paid_at).toLocaleDateString('pt-AO')} — ${sourceLabel(p.source_type)} (${methodLabel(p.method, p.bank_name)})`, marginX + 4, y)
+        doc.setTextColor(...dark)
+        doc.text(`${Number(p.amount).toLocaleString('pt-AO')} Kz`, pageWidth - marginX, y, { align: 'right' })
+        y += 5.5
+        doc.setFontSize(10)
+      })
+      y += 1
+      doc.setFont('helvetica', 'bold')
+      row('Total pago', `${totalPaid.toLocaleString('pt-AO')} Kz`)
+      doc.setFont('helvetica', 'normal')
+      y += 4
+
+      const saldoColor: [number, number, number] = saldoPendente > 0 ? [255, 251, 235] : [240, 253, 244]
+      const saldoText: [number, number, number] = saldoPendente > 0 ? [180, 83, 9] : [21, 128, 61]
+      doc.setFillColor(...saldoColor)
+      doc.roundedRect(marginX, y, pageWidth - marginX * 2, 16, 2, 2, 'F')
       doc.setTextColor(...dark)
-      doc.text(`${Number(p.amount).toLocaleString('pt-AO')} Kz`, pageWidth - marginX, y, { align: 'right' })
-      y += 5.5
-      doc.setFontSize(10)
-    })
-    y += 1
-    doc.setFont('helvetica', 'bold')
-    row('Total pago', `${totalPaid.toLocaleString('pt-AO')} Kz`)
-    doc.setFont('helvetica', 'normal')
-    if (stay.billed_to === 'empresa') {
-      row('Facturação', `Crédito — ${stay.companies?.name || 'empresa não especificada'}`)
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(12)
+      doc.text('Saldo Pendente', marginX + 4, y + 10.5)
+      doc.setTextColor(...saldoText)
+      doc.setFontSize(14)
+      doc.text(`${saldoPendente.toLocaleString('pt-AO')} Kz`, pageWidth - marginX - 4, y + 10.5, { align: 'right' })
+      y += 28
     }
-    y += 4
 
-    const saldoColor: [number, number, number] = saldoPendente > 0 ? [255, 251, 235] : [240, 253, 244]
-    const saldoTextColor: [number, number, number] = saldoPendente > 0 ? [180, 83, 9] : [21, 128, 61]
-    doc.setFillColor(...saldoColor)
-    doc.roundedRect(marginX, y, pageWidth - marginX * 2, 16, 2, 2, 'F')
-    doc.setTextColor(...dark)
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(12)
-    doc.text('Saldo Pendente', marginX + 4, y + 10.5)
-    doc.setTextColor(...saldoTextColor)
-    doc.setFontSize(14)
-    doc.text(`${saldoPendente.toLocaleString('pt-AO')} Kz`, pageWidth - marginX - 4, y + 10.5, { align: 'right' })
-    y += 30
-
-    // Linhas de assinatura — hóspede e rececionista
-    const pageHeight = doc.internal.pageSize.getHeight()
-    const assinaturaY = Math.max(y, pageHeight - 55)
+    // Assinaturas
+    const assinaturaY = Math.max(y + 10, pageHeight - 50)
     const colWidth = (pageWidth - marginX * 2 - 10) / 2
-
     doc.setDrawColor(150, 150, 150)
     doc.line(marginX, assinaturaY, marginX + colWidth, assinaturaY)
     doc.line(marginX + colWidth + 10, assinaturaY, marginX + colWidth * 2 + 10, assinaturaY)
-
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(9)
     doc.setTextColor(...gray)
     doc.text('Assinatura do Hóspede', marginX, assinaturaY + 6)
     doc.text('Assinatura do Rececionista', marginX + colWidth + 10, assinaturaY + 6)
-
     doc.setFontSize(8)
-    doc.text(`Gerado em ${now.toLocaleString('pt-PT')} pelo sistema de gestão S&I Freitas`, marginX, pageHeight - 10)
+    doc.text(`Gerado em ${now.toLocaleString('pt-AO')} · Sistema de gestão S&I Freitas`, marginX, pageHeight - 10)
 
     const blob = doc.output('blob')
     const path = `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}/${stay.id}.pdf`
-
-    const { error: uploadError } = await supabase.storage
-      .from('checkout-docs')
-      .upload(path, blob, { contentType: 'application/pdf', upsert: true })
-
-    if (uploadError) {
-      console.error('Erro ao guardar PDF:', uploadError.message)
-      return
-    }
-
+    await supabase.storage.from('checkout-docs').upload(path, blob, { contentType: 'application/pdf', upsert: true })
     await supabase.from('checkout_documents').upsert({
-      property_id: PROPERTY_ID,
-      stay_id: stay.id,
-      pdf_url: path,
-      invoice_number: invoiceNumber ?? null,
+      property_id: PROPERTY_ID, stay_id: stay.id,
+      pdf_url: path, invoice_number: invoiceNumber ?? null,
       generated_at: now.toISOString(),
     }, { onConflict: 'stay_id' })
   }
 
   async function finalizarHospedagem() {
     if (!stay) return
-    if (saldoPendente > 0) {
-      const ok = confirm(
-        `Ainda há um saldo pendente de ${saldoPendente.toLocaleString('pt-AO')} Kz.\n\nFinalizar mesmo assim? O valor ficará registado como dívida.`
-      )
+    if (!isCredito && saldoPendente > 0) {
+      const ok = confirm(`Ainda há um saldo pendente de ${saldoPendente.toLocaleString('pt-AO')} Kz.\n\nFinalizar mesmo assim?`)
       if (!ok) return
     }
     setFinalizing(true)
     const supabase = createClient()
-    const { error } = await supabase
-      .from('stays')
-      .update({
-        check_out_at: new Date().toISOString(),
-        status: 'finalizado',
-        checked_out_verified_by: staffId,
-        amount_due: saldoPendente,
-      })
-      .eq('id', stay.id)
-
+    const { error } = await supabase.from('stays').update({
+      check_out_at: new Date().toISOString(),
+      status: 'finalizado',
+      checked_out_verified_by: staffId,
+      amount_due: isCredito ? (subtotal - totalPaid) : saldoPendente,
+    }).eq('id', stay.id)
     if (error) { alert('Erro ao finalizar check-out: ' + error.message); setFinalizing(false); return }
-
+    // Quarto para limpeza
+    await supabase.from('rooms').update({ status: 'limpeza' }).eq('id', stay.room_id)
     await gerarEGuardarDocumento()
-
     setDone(true)
     setFinalizing(false)
     setTimeout(() => router.push('/quartos'), 1800)
@@ -465,24 +448,57 @@ export default function CheckOutPage() {
           <LogOut size={20} className="text-brand-500" /> Check-out — Quarto {stay.rooms?.number}
         </h1>
         <p className="text-sm text-ink-muted mt-0.5">
-          {stay.guests?.full_name} {stay.guests?.surname} · desde {new Date(stay.check_in_at).toLocaleDateString('pt-PT')}
+          {stay.guests?.full_name} {stay.guests?.surname} · desde {new Date(stay.check_in_at).toLocaleDateString('pt-AO')}
+          {isCredito && <span className="ml-2 text-xs bg-brand-100 text-brand-700 px-2 py-0.5 rounded font-medium">A crédito</span>}
         </p>
       </div>
+
+      {/* Aviso cliente a crédito */}
+      {isCredito && (
+        <div className="card border-brand-200 bg-brand-50 flex items-start gap-3 text-sm text-brand-700">
+          <Building2 size={16} className="mt-0.5 shrink-0"/>
+          <div>
+            <p className="font-semibold">Cliente a crédito — {stay.companies?.name || 'empresa'}</p>
+            <p className="text-xs mt-0.5">
+              O valor da hospedagem será facturado à empresa. Não é necessário cobrar agora — o documento gerado serve de comprovativo para a empresa.
+            </p>
+          </div>
+        </div>
+      )}
 
       {loadingBreakdown ? (
         <div className="card text-center text-sm text-ink-muted py-8">A calcular valores...</div>
       ) : (
         <>
+          {/* Resumo da conta */}
           <div className="card space-y-3">
             <h2 className="text-xs font-bold text-ink-muted uppercase tracking-wide">Resumo da conta</h2>
             <div className="space-y-2 text-sm">
-              <div className="flex justify-between"><span className="text-ink-muted">Hospedagem ({nights} {nights === 1 ? 'noite' : 'noites'} × {Number(stay.room_value).toLocaleString('pt-AO')} Kz)</span><span className="font-medium">{roomTotal.toLocaleString('pt-AO')} Kz</span></div>
-              <div className="flex justify-between items-center"><span className="text-ink-muted flex items-center gap-1.5"><ShirtIcon size={13}/> Lavandaria</span><span className="font-medium">{laundryTotal.toLocaleString('pt-AO')} Kz</span></div>
-              <div className="flex justify-between items-center"><span className="text-ink-muted flex items-center gap-1.5"><UtensilsCrossed size={13}/> Restaurante</span><span className="font-medium">{restaurantTotal.toLocaleString('pt-AO')} Kz</span></div>
-              <div className="flex justify-between items-center"><span className="text-ink-muted flex items-center gap-1.5"><Wine size={13}/> Bar</span><span className="font-medium">{barTotal.toLocaleString('pt-AO')} Kz</span></div>
-              <div className="flex justify-between pt-2 border-t border-border font-semibold"><span>Subtotal</span><span>{subtotal.toLocaleString('pt-AO')} Kz</span></div>
+              <div className="flex justify-between">
+                <span className="text-ink-muted">
+                  Hospedagem ({diarias} {diarias === 1 ? 'diária' : 'diárias'} × {Number(stay.room_value).toLocaleString('pt-AO')} Kz)
+                </span>
+                <span className="font-medium">{roomTotal.toLocaleString('pt-AO')} Kz</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-ink-muted flex items-center gap-1.5"><ShirtIcon size={13}/> Lavandaria</span>
+                <span className="font-medium">{laundryTotal.toLocaleString('pt-AO')} Kz</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-ink-muted flex items-center gap-1.5"><UtensilsCrossed size={13}/> Restaurante</span>
+                <span className="font-medium">{restaurantTotal.toLocaleString('pt-AO')} Kz</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-ink-muted flex items-center gap-1.5"><Wine size={13}/> Bar</span>
+                <span className="font-medium">{barTotal.toLocaleString('pt-AO')} Kz</span>
+              </div>
+              <div className="flex justify-between pt-2 border-t border-border font-semibold">
+                <span>Total</span>
+                <span>{subtotal.toLocaleString('pt-AO')} Kz</span>
+              </div>
             </div>
 
+            {/* Frigobar */}
             <div className="flex gap-2 pt-2 border-t border-border">
               <select className="input flex-1" value={selectedMinibarProductId} onChange={e => setSelectedMinibarProductId(e.target.value)}>
                 <option value="">Adicionar consumo de frigobar...</option>
@@ -491,32 +507,26 @@ export default function CheckOutPage() {
                 ))}
               </select>
               <input type="number" min="1" className="input w-20" value={minibarQty} onChange={e => setMinibarQty(e.target.value)} />
-              <button
-                type="button"
-                onClick={registarConsumoFrigobar}
-                disabled={savingMinibar || !selectedMinibarProductId}
-                className="btn-secondary px-4 flex items-center gap-1.5"
-              >
+              <button type="button" onClick={registarConsumoFrigobar} disabled={savingMinibar || !selectedMinibarProductId}
+                className="btn-secondary px-4 flex items-center gap-1.5">
                 <Plus size={14}/> {savingMinibar ? '...' : 'Add'}
               </button>
             </div>
-            {minibarProducts.length === 0 && (
-              <p className="text-xs text-ink-muted">Ainda não há produtos de frigobar configurados. Gerir em Frigobar → Produtos.</p>
-            )}
           </div>
 
+          {/* Pagamentos — só mostra secção completa se não for crédito */}
           <div className="card space-y-3">
             <h2 className="text-xs font-bold text-ink-muted uppercase tracking-wide flex items-center gap-1.5">
               <Wallet size={14}/> Pagamentos
             </h2>
             <div className="space-y-2 text-sm">
               {paymentsList.length > 0 ? (
-                <div className="space-y-1 pt-1">
+                <div className="space-y-1">
                   <p className="text-xs text-ink-light">Pagamentos registados:</p>
                   {paymentsList.map((p, i) => (
                     <div key={i} className="flex justify-between text-xs pl-2">
                       <span className="text-ink-muted">
-                        {new Date(p.paid_at).toLocaleDateString('pt-PT')} · {sourceLabel(p.source_type)} · {methodLabel(p.method, p.bank_name)}
+                        {new Date(p.paid_at).toLocaleDateString('pt-AO')} · {sourceLabel(p.source_type)} · {methodLabel(p.method, p.bank_name)}
                       </span>
                       <span className="font-medium">{Number(p.amount).toLocaleString('pt-AO')} Kz</span>
                     </div>
@@ -525,12 +535,14 @@ export default function CheckOutPage() {
               ) : (
                 <p className="text-xs text-ink-muted">Ainda não há pagamentos registados.</p>
               )}
-
-              <div className="flex justify-between pt-2 border-t border-border font-semibold"><span>Total pago</span><span>{totalPaid.toLocaleString('pt-AO')} Kz</span></div>
+              <div className="flex justify-between pt-2 border-t border-border font-semibold">
+                <span>Total pago</span><span>{totalPaid.toLocaleString('pt-AO')} Kz</span>
+              </div>
             </div>
 
+            {/* Registar pagamento adicional — disponível mesmo para crédito (ex: pagamento parcial) */}
             <div className="space-y-2 pt-2 border-t border-border">
-              <p className="text-xs text-ink-light">Registar novo pagamento</p>
+              <p className="text-xs text-ink-light">Registar pagamento adicional</p>
               <div className="flex gap-2">
                 <select className="input flex-1" value={newPaymentSource} onChange={e => setNewPaymentSource(e.target.value)}>
                   <option value="stay">Hospedagem</option>
@@ -546,80 +558,68 @@ export default function CheckOutPage() {
                 </select>
                 {newPaymentMethod === 'tpa' && (
                   <select className="input w-24" value={newPaymentBank} onChange={e => setNewPaymentBank(e.target.value)}>
-                    <option value="BIC">BIC</option>
-                    <option value="BFA">BFA</option>
-                    <option value="BAI">BAI</option>
+                    {['BIC','BFA','BAI','BCI','BNI','ATLANTICO'].map(b => <option key={b}>{b}</option>)}
                   </select>
                 )}
               </div>
               <div className="flex gap-2">
-                <input
-                  type="number"
-                  min="0"
-                  className="input flex-1"
-                  placeholder="Valor (Kz)"
-                  value={newPaymentAmount}
-                  onChange={e => setNewPaymentAmount(e.target.value)}
-                />
-                <button
-                  type="button"
-                  onClick={registarPagamento}
-                  disabled={savingPayment || !newPaymentAmount}
-                  className="btn-secondary px-4"
-                >
+                <input type="number" min="0" className="input flex-1" placeholder="Valor (Kz)"
+                  value={newPaymentAmount} onChange={e => setNewPaymentAmount(e.target.value)} />
+                <button type="button" onClick={registarPagamento} disabled={savingPayment || !newPaymentAmount} className="btn-secondary px-4">
                   {savingPayment ? '...' : 'Registar'}
                 </button>
               </div>
             </div>
           </div>
 
-          <div className={`card ${saldoPendente > 0 ? 'border-amber-300 bg-amber-50' : 'border-green-300 bg-green-50'}`}>
-            <div className="flex justify-between items-center">
-              <span className="font-semibold text-ink">Saldo Pendente</span>
-              <span className={`text-xl font-bold ${saldoPendente > 0 ? 'text-amber-700' : 'text-green-700'}`}>
-                {saldoPendente.toLocaleString('pt-AO')} Kz
-              </span>
-            </div>
-            {saldoPendente > 0 && (
-              <div className="mt-3 pt-3 border-t border-amber-200 space-y-2">
-                <p className="text-xs text-amber-800">Registar o pagamento deste saldo:</p>
-                <div className="flex gap-2">
-                  <select className="input flex-1" value={settleMethod} onChange={e => setSettleMethod(e.target.value)}>
-                    <option value="numerario">Numerário</option>
-                    <option value="tpa">TPA</option>
-                    <option value="transferencia">Transferência</option>
-                  </select>
-                  {settleMethod === 'tpa' && (
-                    <select className="input w-24" value={settleBank} onChange={e => setSettleBank(e.target.value)}>
-                      <option value="BIC">BIC</option>
-                      <option value="BFA">BFA</option>
-                      <option value="BAI">BAI</option>
-                    </select>
-                  )}
-                  <button
-                    type="button"
-                    onClick={liquidarSaldo}
-                    disabled={settling}
-                    className="btn-primary px-5 whitespace-nowrap"
-                  >
-                    {settling ? 'A registar...' : `Pagar ${saldoPendente.toLocaleString('pt-AO')} Kz`}
-                  </button>
-                </div>
+          {/* Saldo — para clientes a crédito mostra de forma diferente */}
+          {isCredito ? (
+            <div className="card border-brand-200 bg-brand-50">
+              <div className="flex justify-between items-center">
+                <span className="font-semibold text-ink">Valor a facturar à empresa</span>
+                <span className="text-xl font-bold text-brand-500">
+                  {(subtotal - totalPaid).toLocaleString('pt-AO')} Kz
+                </span>
               </div>
-            )}
-          </div>
-
-          {stay.billed_to === 'empresa' && (
-            <div className="card border-brand-200 bg-brand-50 text-sm text-brand-700">
-              Facturação a crédito — {stay.companies?.name || 'empresa não especificada'}
+              {totalPaid > 0 && (
+                <p className="text-xs text-ink-muted mt-1">
+                  ({totalPaid.toLocaleString('pt-AO')} Kz já pago · restam {(subtotal - totalPaid).toLocaleString('pt-AO')} Kz a crédito)
+                </p>
+              )}
+            </div>
+          ) : (
+            <div className={`card ${saldoPendente > 0 ? 'border-amber-300 bg-amber-50' : 'border-green-300 bg-green-50'}`}>
+              <div className="flex justify-between items-center">
+                <span className="font-semibold text-ink">Saldo Pendente</span>
+                <span className={`text-xl font-bold ${saldoPendente > 0 ? 'text-amber-700' : 'text-green-700'}`}>
+                  {saldoPendente.toLocaleString('pt-AO')} Kz
+                </span>
+              </div>
+              {saldoPendente > 0 && (
+                <div className="mt-3 pt-3 border-t border-amber-200 space-y-2">
+                  <p className="text-xs text-amber-800">Registar o pagamento deste saldo:</p>
+                  <div className="flex gap-2">
+                    <select className="input flex-1" value={settleMethod} onChange={e => setSettleMethod(e.target.value)}>
+                      <option value="numerario">Numerário</option>
+                      <option value="tpa">TPA</option>
+                      <option value="transferencia">Transferência</option>
+                    </select>
+                    {settleMethod === 'tpa' && (
+                      <select className="input w-24" value={settleBank} onChange={e => setSettleBank(e.target.value)}>
+                        {['BIC','BFA','BAI','BCI','BNI','ATLANTICO'].map(b => <option key={b}>{b}</option>)}
+                      </select>
+                    )}
+                    <button type="button" onClick={liquidarSaldo} disabled={settling}
+                      className="btn-primary px-5 whitespace-nowrap">
+                      {settling ? 'A registar...' : `Pagar ${saldoPendente.toLocaleString('pt-AO')} Kz`}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
-          <button
-            onClick={finalizarHospedagem}
-            disabled={finalizing}
-            className="btn-primary w-full py-3"
-          >
+          <button onClick={finalizarHospedagem} disabled={finalizing} className="btn-primary w-full py-3">
             {finalizing ? 'A finalizar...' : 'Finalizar Hospedagem'}
           </button>
         </>

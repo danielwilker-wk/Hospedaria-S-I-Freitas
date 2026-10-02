@@ -8,6 +8,13 @@ import type { Guest } from '@/types'
 
 const PROPERTY_ID = '00000000-0000-0000-0000-000000000001'
 
+// Data/hora actual no formato datetime-local (Angola UTC+1)
+function nowLocalString(): string {
+  const now = new Date()
+  now.setMinutes(now.getMinutes() - now.getTimezoneOffset())
+  return now.toISOString().slice(0, 16)
+}
+
 export default function CheckInPage() {
   return (
     <Suspense fallback={<div className="flex items-center justify-center h-64"><p className="text-ink-muted text-sm">A carregar...</p></div>}>
@@ -36,6 +43,7 @@ function CheckInPageInner() {
   const [form, setForm] = useState({
     room_id: '',
     occupancy: 'individual',
+    check_in_at: nowLocalString(),       // ← NOVO: data/hora de entrada
     full_name: '',
     surname: '',
     nationality: '',
@@ -146,11 +154,9 @@ function CheckInPageInner() {
     setForm(prev => ({
       ...prev,
       [name]: value,
-      // Ao trocar de empresa, sugerir o desconto se for cliente corrente
       ...(name === 'company_id'
         ? { discount_applied: companies.find(c => c.id === value)?.default_discount ?? false }
         : {}),
-      // Ao mudar para "conta própria", limpar empresa e desconto
       ...(name === 'billed_to' && value === 'proprio' ? { company_id: '', discount_applied: false } : {}),
     }))
   }
@@ -194,6 +200,7 @@ function CheckInPageInner() {
         room_id: form.room_id,
         primary_guest_id: guestId,
         occupancy: form.occupancy,
+        check_in_at: new Date(form.check_in_at).toISOString(), // ← usa a data escolhida
         vehicle_plate: form.vehicle_plate || null,
         vehicle_make: form.vehicle_make || null,
         vehicle_color: form.vehicle_color || null,
@@ -212,7 +219,6 @@ function CheckInPageInner() {
 
     if (stayError) { alert('Erro ao criar estadia: ' + stayError.message); setSaving(false); return }
 
-    // Se houve valor pago no check-in, regista o pagamento com método e banco
     if (Number(form.amount_paid_reservation) > 0) {
       await supabase.from('payments').insert({
         property_id: PROPERTY_ID,
@@ -227,10 +233,7 @@ function CheckInPageInner() {
 
     setSuccess(true)
     setSaving(false)
-
-    setTimeout(() => {
-      router.push('/quartos')
-    }, 1500)
+    setTimeout(() => { router.push('/quartos') }, 1500)
   }
 
   if (loading) return <div className="flex items-center justify-center h-64"><p className="text-ink-muted text-sm">A carregar...</p></div>
@@ -276,11 +279,8 @@ function CheckInPageInner() {
           {searchResults.length > 0 && (
             <div className="divide-y divide-border border border-border rounded-lg">
               {searchResults.map(g => (
-                <button
-                  key={g.id}
-                  onClick={() => selectGuest(g)}
-                  className="w-full text-left px-4 py-3 hover:bg-surface-muted transition"
-                >
+                <button key={g.id} onClick={() => selectGuest(g)}
+                  className="w-full text-left px-4 py-3 hover:bg-surface-muted transition">
                   <p className="font-medium text-ink">{g.full_name} {g.surname}</p>
                   <p className="text-xs text-ink-muted">
                     {g.document_type === 'bi' ? 'BI' : 'Passaporte'}: {g.document_number || '—'}
@@ -291,10 +291,8 @@ function CheckInPageInner() {
           )}
 
           <div className="pt-2 border-t border-border">
-            <button
-              onClick={startNewGuest}
-              className="w-full flex items-center justify-center gap-2 text-sm font-medium text-brand-500 py-2"
-            >
+            <button onClick={startNewGuest}
+              className="w-full flex items-center justify-center gap-2 text-sm font-medium text-brand-500 py-2">
               <UserPlus size={16} /> Este é um hóspede novo — criar registo
             </button>
           </div>
@@ -306,9 +304,7 @@ function CheckInPageInner() {
           {existingGuestId && (
             <div className="card border-brand-200 bg-brand-50 text-sm text-brand-700 flex items-center justify-between">
               <span>Hóspede já registado — dados preenchidos automaticamente.</span>
-              <button type="button" onClick={() => setStep('search')} className="font-semibold underline">
-                Trocar
-              </button>
+              <button type="button" onClick={() => setStep('search')} className="font-semibold underline">Trocar</button>
             </div>
           )}
 
@@ -320,9 +316,7 @@ function CheckInPageInner() {
                 <select name="room_id" required className="input" value={form.room_id} onChange={handleChange}>
                   <option value="">Seleccionar quarto</option>
                   {rooms.map(r => (
-                    <option key={r.id} value={r.id}>
-                      Nº {r.number} — {r.room_types?.name}
-                    </option>
+                    <option key={r.id} value={r.id}>Nº {r.number} — {r.room_types?.name}</option>
                   ))}
                 </select>
               </div>
@@ -334,6 +328,25 @@ function CheckInPageInner() {
                 </select>
               </div>
             </div>
+
+            {/* ← CAMPO NOVO: Data e hora de entrada */}
+            <div>
+              <label className="label">Data e hora de entrada</label>
+              <input
+                type="datetime-local"
+                name="check_in_at"
+                required
+                className="input"
+                value={form.check_in_at}
+                onChange={handleChange}
+              />
+              {form.check_in_at !== nowLocalString().slice(0, 16) && (
+                <p className="text-xs text-amber-600 mt-1">
+                  ⚠️ Estás a registar uma entrada retroactiva — confirma a data antes de submeter.
+                </p>
+              )}
+            </div>
+
             {selectedRoom && (
               <div className="grid grid-cols-3 gap-3 text-sm bg-surface-muted rounded-lg p-3">
                 <div>
@@ -349,6 +362,7 @@ function CheckInPageInner() {
                 <div><p className="text-ink-light text-xs">Valor a pagar</p><p className="font-bold text-brand-500">{amountDue.toLocaleString('pt-AO')} Kz</p></div>
               </div>
             )}
+
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="label">Check-out previsto</label>
@@ -359,6 +373,7 @@ function CheckInPageInner() {
                 <input type="number" name="amount_paid_reservation" className="input" value={form.amount_paid_reservation} onChange={handleChange} min="0"/>
               </div>
             </div>
+
             {Number(form.amount_paid_reservation) > 0 && (
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -440,27 +455,21 @@ function CheckInPageInner() {
                 <option value="empresa">A crédito — em nome de empresa</option>
               </select>
             </div>
-
             {form.billed_to === 'empresa' && (
               <>
                 <div>
                   <label className="label">Empresa</label>
                   <select name="company_id" required className="input" value={form.company_id} onChange={handleChange}>
                     <option value="">Seleccionar empresa</option>
-                    {companies.map(c => (
-                      <option key={c.id} value={c.id}>{c.name}</option>
-                    ))}
+                    {companies.map(c => (<option key={c.id} value={c.id}>{c.name}</option>))}
                   </select>
                   {companies.length === 0 && (
-                    <p className="text-xs text-ink-muted mt-1">Nenhuma empresa registada ainda — gerir em Empresas.</p>
+                    <p className="text-xs text-ink-muted mt-1">Nenhuma empresa registada — gerir em Empresas.</p>
                   )}
                 </div>
                 <label className="flex items-center gap-2 text-sm text-ink">
-                  <input
-                    type="checkbox"
-                    checked={form.discount_applied}
-                    onChange={e => setForm(prev => ({ ...prev, discount_applied: e.target.checked }))}
-                  />
+                  <input type="checkbox" checked={form.discount_applied}
+                    onChange={e => setForm(prev => ({ ...prev, discount_applied: e.target.checked }))}/>
                   Aplicar desconto de 10% (cliente corrente)
                 </label>
               </>

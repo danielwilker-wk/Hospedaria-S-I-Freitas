@@ -23,6 +23,8 @@ export default function BarVendaPage() {
   const [cart, setCart] = useState<CartItem[]>([])
 
   const [guestType, setGuestType] = useState<'hospede' | 'nao_hospede'>('nao_hospede')
+  const [companies, setCompanies] = useState<{ id: string; name: string }[]>([])
+  const [companyId, setCompanyId] = useState('')
   const [staySearch, setStaySearch] = useState('')
   const [stayResults, setStayResults] = useState<ActiveStayOption[]>([])
   const [selectedStay, setSelectedStay] = useState<ActiveStayOption | null>(null)
@@ -31,7 +33,7 @@ export default function BarVendaPage() {
   const [amountReceived, setAmountReceived] = useState('')
   const [paymentMethod, setPaymentMethod] = useState('numerario')
   const [paymentBank, setPaymentBank] = useState('BIC')
-  const [paymentTiming, setPaymentTiming] = useState<'debitar' | 'agora'>('debitar')
+  const [paymentTiming, setPaymentTiming] = useState<'debitar' | 'agora' | 'credito_empresa'>('agora')
   const [saving, setSaving] = useState(false)
   const [success, setSuccess] = useState(false)
 
@@ -59,6 +61,13 @@ export default function BarVendaPage() {
       .eq('active', true)
       .order('full_name')
       .then(({ data }) => setStaffList(data ?? []))
+    supabase
+      .from('companies')
+      .select('id, name')
+      .eq('property_id', PROPERTY_ID)
+      .eq('active', true)
+      .order('name')
+      .then(({ data }) => setCompanies(data ?? []))
     loadProducts()
   }, [])
 
@@ -103,11 +112,13 @@ export default function BarVendaPage() {
 
   const total = cart.reduce((sum, c) => sum + c.product.price * c.quantity, 0)
   const troco = amountReceived ? Number(amountReceived) - total : 0
-  const payingNow = guestType === 'nao_hospede' || paymentTiming === 'agora'
+  const payingNow = paymentTiming === 'agora'
+  const isCredito = paymentTiming === 'credito_empresa'
 
   const canFinalize = cart.length > 0 &&
     !!attendantId &&
     (guestType === 'nao_hospede' ? true : !!selectedStay) &&
+    (isCredito ? !!companyId : true) &&
     (payingNow ? (paymentMethod === 'numerario' ? Number(amountReceived) >= total : true) : true)
 
   async function finalizeSale() {
@@ -125,6 +136,7 @@ export default function BarVendaPage() {
         change_given: payingNow && paymentMethod === 'numerario' ? troco : null,
         payment_method: payingNow ? paymentMethod : null,
         bank_name: (payingNow && paymentMethod === 'tpa') ? paymentBank : null,
+        company_id: isCredito ? companyId : null,
         recorded_by: attendantId,
       })
       .select()
@@ -179,7 +191,8 @@ export default function BarVendaPage() {
       setStaySearch('')
       setGuestName('')
       setAmountReceived('')
-      setPaymentTiming('debitar')
+      setPaymentTiming('agora')
+      setCompanyId('')
       setAttendantId('')
       setSuccess(false)
       loadProducts()
@@ -240,13 +253,13 @@ export default function BarVendaPage() {
           <h2 className="text-xs font-bold text-ink-muted uppercase tracking-wide">Cliente</h2>
           <div className="flex gap-2">
             <button
-              onClick={() => setGuestType('nao_hospede')}
+              onClick={() => { setGuestType('nao_hospede'); setPaymentTiming('agora') }}
               className={`flex-1 py-1.5 rounded-lg text-sm font-medium ${guestType === 'nao_hospede' ? 'bg-brand-500 text-white' : 'bg-surface-muted text-ink-muted'}`}
             >
               Não-hóspede
             </button>
             <button
-              onClick={() => setGuestType('hospede')}
+              onClick={() => { setGuestType('hospede'); setPaymentTiming('debitar') }}
               className={`flex-1 py-1.5 rounded-lg text-sm font-medium ${guestType === 'hospede' ? 'bg-brand-500 text-white' : 'bg-surface-muted text-ink-muted'}`}
             >
               Hóspede
@@ -305,23 +318,45 @@ export default function BarVendaPage() {
 
         <div className="card space-y-3">
           <h2 className="text-xs font-bold text-ink-muted uppercase tracking-wide">Pagamento</h2>
-          {guestType === 'hospede' && selectedStay && (
-            <div className="flex gap-2">
+          <div className="flex gap-2">
+            {guestType === 'hospede' && selectedStay && (
               <button
                 onClick={() => setPaymentTiming('debitar')}
                 className={`flex-1 py-1.5 rounded-lg text-xs font-medium ${paymentTiming === 'debitar' ? 'bg-brand-500 text-white' : 'bg-surface-muted text-ink-muted'}`}
               >
                 Debitar na conta
               </button>
-              <button
-                onClick={() => setPaymentTiming('agora')}
-                className={`flex-1 py-1.5 rounded-lg text-xs font-medium ${paymentTiming === 'agora' ? 'bg-brand-500 text-white' : 'bg-surface-muted text-ink-muted'}`}
-              >
-                Pago agora
-              </button>
-            </div>
-          )}
-          {payingNow ? (
+            )}
+            <button
+              onClick={() => setPaymentTiming('agora')}
+              className={`flex-1 py-1.5 rounded-lg text-xs font-medium ${paymentTiming === 'agora' ? 'bg-brand-500 text-white' : 'bg-surface-muted text-ink-muted'}`}
+            >
+              Pago agora
+            </button>
+            <button
+              onClick={() => setPaymentTiming('credito_empresa')}
+              className={`flex-1 py-1.5 rounded-lg text-xs font-medium ${paymentTiming === 'credito_empresa' ? 'bg-brand-500 text-white' : 'bg-surface-muted text-ink-muted'}`}
+            >
+              A crédito (empresa)
+            </button>
+          </div>
+
+          {isCredito ? (
+            <>
+              <select className="input" value={companyId} onChange={e => setCompanyId(e.target.value)}>
+                <option value="">Seleccionar empresa</option>
+                {companies.map(c => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+              {companies.length === 0 && (
+                <p className="text-xs text-ink-muted">Nenhuma empresa registada — gerir em Empresas.</p>
+              )}
+              <p className="text-xs text-ink-muted bg-surface-muted rounded-lg p-2.5">
+                Este valor fica pendente, por conta da empresa seleccionada — não é cobrado agora.
+              </p>
+            </>
+          ) : payingNow ? (
             <>
               <div className="flex gap-2">
                 <select className="input flex-1" value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)}>

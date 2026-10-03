@@ -1,629 +1,383 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { LogOut, Search, CheckCircle, Wallet, ShirtIcon, UtensilsCrossed, Wine, FileDown, Plus } from 'lucide-react'
-import jsPDF from 'jspdf'
+import { UtensilsCrossed, Search, Plus, Minus, CheckCircle } from 'lucide-react'
+import type { MenuItem } from '@/types'
 
 const PROPERTY_ID = '00000000-0000-0000-0000-000000000001'
 
-type MinibarProduct = { id: string; name: string; price: number }
+type CartItem = { menuItem: MenuItem; quantity: number }
 
-function sourceLabel(source: string) {
-  const labels: Record<string, string> = {
-    stay: 'Hospedagem',
-    laundry: 'Lavandaria',
-    restaurant: 'Restaurante',
-    bar: 'Bar',
-    minibar: 'Frigobar',
-  }
-  return labels[source] ?? source
-}
-
-function methodLabel(method: string, bank?: string | null) {
-  const labels: Record<string, string> = {
-    numerario: 'Numerário',
-    tpa: 'TPA',
-    transferencia: 'Transferência',
-  }
-  const base = labels[method] ?? method
-  if (method === 'tpa' && bank) return `${base} ${bank}`
-  return base
-}
-
-type ActiveStay = {
+type ActiveStayOption = {
   id: string
-  room_id: string
-  room_value: number
-  amount_paid_reservation: number
-  check_in_at: string
-  billed_to: string
-  company_id?: string
-  rooms: { number: string; room_types: { name: string } }
-  guests: { full_name: string; surname: string | null; document_number: string | null }
-  companies?: { name: string }
+  rooms: { number: string }
+  guests: { full_name: string; surname: string | null }
 }
 
-export default function CheckOutPage() {
-  const router = useRouter()
-  const [query, setQuery] = useState('')
-  const [searching, setSearching] = useState(false)
-  const [results, setResults] = useState<ActiveStay[]>([])
-  const [stay, setStay] = useState<ActiveStay | null>(null)
-
-  const [laundryTotal, setLaundryTotal] = useState(0)
-  const [restaurantTotal, setRestaurantTotal] = useState(0)
-  const [barTotal, setBarTotal] = useState(0)
-  const [minibarTotal, setMinibarTotal] = useState(0)
-  const [paymentsMade, setPaymentsMade] = useState(0)
-  const [paymentsList, setPaymentsList] = useState<any[]>([])
-  const [loadingBreakdown, setLoadingBreakdown] = useState(false)
-
-  const [newPaymentAmount, setNewPaymentAmount] = useState('')
-  const [newPaymentMethod, setNewPaymentMethod] = useState('numerario')
-  const [newPaymentBank, setNewPaymentBank] = useState('BIC')
-  const [newPaymentSource, setNewPaymentSource] = useState('stay')
-  const [savingPayment, setSavingPayment] = useState(false)
-
-  const [settleMethod, setSettleMethod] = useState('numerario')
-  const [settleBank, setSettleBank] = useState('BIC')
-  const [settling, setSettling] = useState(false)
-
+export default function RestauranteVendaPage() {
   const [staffId, setStaffId] = useState('')
-  const [finalizing, setFinalizing] = useState(false)
-  const [done, setDone] = useState(false)
+  const [staffList, setStaffList] = useState<{ id: string; full_name: string }[]>([])
+  const [attendantId, setAttendantId] = useState('')
+  const [menuItems, setMenuItems] = useState<MenuItem[]>([])
+  const [cart, setCart] = useState<CartItem[]>([])
 
-  const [minibarProducts, setMinibarProducts] = useState<MinibarProduct[]>([])
-  const [selectedMinibarProductId, setSelectedMinibarProductId] = useState('')
-  const [minibarQty, setMinibarQty] = useState('1')
-  const [savingMinibar, setSavingMinibar] = useState(false)
+  const [guestType, setGuestType] = useState<'hospede' | 'nao_hospede'>('nao_hospede')
+  const [companies, setCompanies] = useState<{ id: string; name: string }[]>([])
+  const [companyId, setCompanyId] = useState('')
+  const [staySearch, setStaySearch] = useState('')
+  const [stayResults, setStayResults] = useState<ActiveStayOption[]>([])
+  const [selectedStay, setSelectedStay] = useState<ActiveStayOption | null>(null)
+  const [guestName, setGuestName] = useState('')
+
+  const [amountReceived, setAmountReceived] = useState('')
+  const [paymentMethod, setPaymentMethod] = useState('numerario')
+  const [paymentBank, setPaymentBank] = useState('BIC')
+  const [paymentTiming, setPaymentTiming] = useState<'debitar' | 'agora' | 'credito_empresa'>('debitar')
+  const [saving, setSaving] = useState(false)
+  const [success, setSuccess] = useState(false)
 
   useEffect(() => {
     const supabase = createClient()
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!session) { router.push('/auth/login'); return }
-      setStaffId(session.user.id)
+      if (session) setStaffId(session.user.id)
     })
-    supabase.from('minibar_products').select('id, name, price').eq('property_id', PROPERTY_ID).eq('active', true).order('name')
-      .then(({ data }) => setMinibarProducts(data ?? []))
-  }, [router])
+    supabase
+      .from('attendants')
+      .select('id, full_name')
+      .eq('property_id', PROPERTY_ID)
+      .eq('department', 'sala_refeicoes')
+      .eq('active', true)
+      .order('full_name')
+      .then(({ data }) => setStaffList(data ?? []))
+    supabase
+      .from('menu_items')
+      .select('*')
+      .eq('property_id', PROPERTY_ID)
+      .eq('active', true)
+      .order('category')
+      .order('name')
+      .then(({ data }) => setMenuItems(data ?? []))
+    supabase
+      .from('companies')
+      .select('id, name')
+      .eq('property_id', PROPERTY_ID)
+      .eq('active', true)
+      .order('name')
+      .then(({ data }) => setCompanies(data ?? []))
+  }, [])
 
-  async function handleSearch(e: React.FormEvent) {
+  async function searchStays(e: React.FormEvent) {
     e.preventDefault()
-    if (!query.trim()) return
-    setSearching(true)
-    setStay(null)
+    if (!staySearch.trim()) return
     const supabase = createClient()
-
     const { data } = await supabase
       .from('stays')
-      .select('*, rooms(number, room_types(name)), guests(full_name, surname, document_number), companies(name)')
+      .select('id, rooms(number), guests(full_name, surname)')
       .eq('property_id', PROPERTY_ID)
       .eq('status', 'ativo')
 
-    const q = query.trim().toLowerCase()
+    const q = staySearch.trim().toLowerCase()
     const filtered = (data ?? []).filter((s: any) =>
       s.rooms?.number?.toLowerCase().includes(q) ||
       s.guests?.full_name?.toLowerCase().includes(q) ||
-      s.guests?.surname?.toLowerCase().includes(q) ||
-      s.guests?.document_number?.toLowerCase().includes(q)
+      s.guests?.surname?.toLowerCase().includes(q)
     )
-
-    setResults(filtered as ActiveStay[])
-    setSearching(false)
+    setStayResults(filtered as any)
   }
 
-  async function selectStay(s: ActiveStay) {
-    setStay(s)
-    setResults([])
-    setLoadingBreakdown(true)
-    const supabase = createClient()
-
-    const [{ data: laundry }, { data: restaurant }, { data: bar }, { data: minibar }, { data: payments }] = await Promise.all([
-      supabase.from('laundry_records').select('value').eq('stay_id', s.id).is('company_id', null),
-      supabase.from('restaurant_sales').select('value').eq('stay_id', s.id).eq('guest_type', 'hospede').is('company_id', null),
-      supabase.from('bar_sales').select('bar_sale_items(subtotal)').eq('stay_id', s.id).eq('guest_type', 'hospede').is('company_id', null),
-      supabase.from('minibar_consumptions').select('total').eq('stay_id', s.id),
-      supabase.from('payments').select('amount, method, bank_name, source_type, paid_at').eq('source_id', s.id).order('paid_at', { ascending: false }),
-    ])
-
-    setLaundryTotal((laundry ?? []).reduce((sum, r) => sum + Number(r.value), 0))
-    setRestaurantTotal((restaurant ?? []).reduce((sum, r) => sum + Number(r.value), 0))
-    setBarTotal((bar ?? []).reduce((sum: number, s: any) => sum + (s.bar_sale_items ?? []).reduce((si: number, it: any) => si + Number(it.subtotal), 0), 0))
-    setMinibarTotal((minibar ?? []).reduce((sum, r) => sum + Number(r.total), 0))
-    setPaymentsList(payments ?? [])
-    setPaymentsMade((payments ?? []).reduce((sum, p) => sum + Number(p.amount), 0))
-    setLoadingBreakdown(false)
+  function addToCart(item: MenuItem) {
+    setCart(prev => {
+      const existing = prev.find(c => c.menuItem.id === item.id)
+      if (existing) return prev.map(c => c.menuItem.id === item.id ? { ...c, quantity: c.quantity + 1 } : c)
+      return [...prev, { menuItem: item, quantity: 1 }]
+    })
   }
 
-  if (!stay) {
-    return (
-      <div className="max-w-2xl mx-auto space-y-6">
-        <div>
-          <h1 className="text-xl font-semibold text-ink flex items-center gap-2">
-            <LogOut size={20} className="text-brand-500" /> Check-out
-          </h1>
-          <p className="text-sm text-ink-muted mt-0.5">Procurar por nº de quarto, nome ou BI do hóspede</p>
-        </div>
-
-        <form onSubmit={handleSearch} className="card flex gap-3">
-          <div className="relative flex-1">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-light" />
-            <input
-              type="text"
-              className="input pl-9"
-              placeholder="Ex: 12, Manuel Mendes ou nº de BI..."
-              value={query}
-              onChange={e => setQuery(e.target.value)}
-              autoFocus
-            />
-          </div>
-          <button type="submit" className="btn-primary px-6" disabled={searching}>
-            {searching ? 'A procurar...' : 'Procurar'}
-          </button>
-        </form>
-
-        {results.length > 0 && (
-          <div className="card divide-y divide-border">
-            {results.map(s => (
-              <button
-                key={s.id}
-                onClick={() => selectStay(s)}
-                className="w-full text-left py-3 first:pt-0 last:pb-0 flex items-center justify-between hover:opacity-70 transition"
-              >
-                <div>
-                  <p className="font-medium text-ink">{s.guests?.full_name} {s.guests?.surname}</p>
-                  <p className="text-xs text-ink-muted">Quarto {s.rooms?.number} — {s.rooms?.room_types?.name}</p>
-                </div>
-                <span className="text-xs px-2.5 py-1 rounded-full bg-surface-muted text-ink-light">
-                  desde {new Date(s.check_in_at).toLocaleDateString('pt-PT')}
-                </span>
-              </button>
-            ))}
-          </div>
-        )}
-
-        {results.length === 0 && query && !searching && (
-          <p className="text-sm text-ink-muted text-center py-4">Nenhuma estadia activa encontrada.</p>
-        )}
-      </div>
+  function changeQty(itemId: string, delta: number) {
+    setCart(prev => prev
+      .map(c => c.menuItem.id === itemId ? { ...c, quantity: c.quantity + delta } : c)
+      .filter(c => c.quantity > 0)
     )
   }
 
-  const nights = Math.max(1, Math.ceil((Date.now() - new Date(stay.check_in_at).getTime()) / (1000 * 60 * 60 * 24)))
-  const roomTotal = Number(stay.room_value) * nights
-  const subtotal = roomTotal + laundryTotal + restaurantTotal + barTotal + minibarTotal
-  // O pagamento do check-in já vem incluído em paymentsMade (tabela payments),
-  // por isso não se soma stay.amount_paid_reservation aqui — evita duplicar o valor.
-  const totalPaid = paymentsMade
-  const saldoPendente = subtotal - totalPaid
+  const total = cart.reduce((sum, c) => sum + c.menuItem.price * c.quantity, 0)
+  const troco = amountReceived ? Number(amountReceived) - total : 0
 
-  async function registarConsumoFrigobar() {
-    if (!selectedMinibarProductId || !stay) return
-    setSavingMinibar(true)
+  const payingNow = paymentTiming === 'agora'
+  const isCredito = paymentTiming === 'credito_empresa'
+
+  const canFinalize = cart.length > 0 &&
+    !!attendantId &&
+    (guestType === 'nao_hospede' ? true : !!selectedStay) &&
+    (isCredito ? !!companyId : true) &&
+    (payingNow ? (paymentMethod === 'numerario' ? Number(amountReceived) >= total : true) : true)
+
+  async function finalizeSale() {
+    setSaving(true)
     const supabase = createClient()
-    const product = minibarProducts.find(p => p.id === selectedMinibarProductId)
-    if (!product) { setSavingMinibar(false); return }
 
-    const { error } = await supabase.from('minibar_consumptions').insert({
-      property_id: PROPERTY_ID,
-      stay_id: stay.id,
-      product_id: product.id,
-      quantity: Number(minibarQty),
-      unit_price: product.price,
-      recorded_by: staffId,
-    })
-    if (error) { alert('Erro: ' + error.message); setSavingMinibar(false); return }
-
-    setMinibarTotal(prev => prev + product.price * Number(minibarQty))
-    setSelectedMinibarProductId('')
-    setMinibarQty('1')
-    setSavingMinibar(false)
-  }
-
-  async function registarPagamento() {
-    if (!newPaymentAmount || Number(newPaymentAmount) <= 0 || !stay) return
-    setSavingPayment(true)
-    const supabase = createClient()
-    const { data, error } = await supabase.from('payments').insert({
-      property_id: PROPERTY_ID,
-      source_type: newPaymentSource,
-      source_id: stay.id,
-      amount: Number(newPaymentAmount),
-      method: newPaymentMethod,
-      bank_name: newPaymentMethod === 'tpa' ? newPaymentBank : null,
-      recorded_by: staffId,
-    }).select().single()
-    if (error) { alert('Erro ao registar pagamento: ' + error.message); setSavingPayment(false); return }
-    setPaymentsList(prev => [data, ...prev])
-    setPaymentsMade(prev => prev + Number(newPaymentAmount))
-    setNewPaymentAmount('')
-    setNewPaymentSource('stay')
-    setSavingPayment(false)
-  }
-
-  async function liquidarSaldo() {
-    if (!stay || saldoPendente <= 0) return
-    setSettling(true)
-    const supabase = createClient()
-    const { data, error } = await supabase.from('payments').insert({
-      property_id: PROPERTY_ID,
-      source_type: 'stay',
-      source_id: stay.id,
-      amount: saldoPendente,
-      method: settleMethod,
-      bank_name: settleMethod === 'tpa' ? settleBank : null,
-      recorded_by: staffId,
-    }).select().single()
-    if (error) { alert('Erro ao registar pagamento: ' + error.message); setSettling(false); return }
-    setPaymentsList(prev => [data, ...prev])
-    setPaymentsMade(prev => prev + saldoPendente)
-    setSettling(false)
-  }
-
-  async function gerarEGuardarDocumento() {
-    if (!stay) return
-    const supabase = createClient()
-    const now = new Date()
-
-    const { data: invoiceNumber } = await supabase.rpc('next_checkout_invoice_number')
-
-    const doc = new jsPDF()
-    const pageWidth = doc.internal.pageSize.getWidth()
-    const marginX = 14
-    const brand: [number, number, number] = [234, 88, 12]
-    const brandLight: [number, number, number] = [255, 237, 213]
-    const gray: [number, number, number] = [107, 114, 128]
-    const dark: [number, number, number] = [31, 41, 55]
-
-    doc.setFillColor(...brand)
-    doc.rect(0, 0, pageWidth, 32, 'F')
-    doc.setTextColor(255, 255, 255)
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(16)
-    doc.text('Hospedaria S&I Freitas', marginX, 15)
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(10)
-    doc.text('Documento de Check-in / Check-out', marginX, 23)
-    if (invoiceNumber) {
-      doc.setFont('helvetica', 'bold')
-      doc.setFontSize(11)
-      doc.text(`Nº ${invoiceNumber}`, pageWidth - marginX, 15, { align: 'right' })
-      doc.setFont('helvetica', 'normal')
-    }
-
-    let y = 44
-
-    function sectionTitle(title: string) {
-      doc.setFillColor(...brand)
-      doc.rect(marginX, y - 4, 2.5, 5, 'F')
-      doc.setTextColor(...dark)
-      doc.setFont('helvetica', 'bold')
-      doc.setFontSize(11)
-      doc.text(title, marginX + 5, y)
-      y += 8
-      doc.setFont('helvetica', 'normal')
-      doc.setFontSize(10)
-    }
-    function row(label: string, value: string) {
-      doc.setTextColor(...gray)
-      doc.text(label, marginX, y)
-      doc.setTextColor(...dark)
-      doc.text(value, pageWidth - marginX, y, { align: 'right' })
-      y += 6
-    }
-    function divider() {
-      y += 2
-      doc.setDrawColor(230, 230, 230)
-      doc.line(marginX, y, pageWidth - marginX, y)
-      y += 8
-    }
-
-    sectionTitle('Hóspede')
-    row('Nome', `${stay.guests?.full_name} ${stay.guests?.surname ?? ''}`)
-    row('Documento', stay.guests?.document_number ?? '—')
-    row('Quarto', `${stay.rooms?.number} — ${stay.rooms?.room_types?.name}`)
-    row('Check-in', new Date(stay.check_in_at).toLocaleString('pt-PT'))
-    row('Check-out', now.toLocaleString('pt-PT'))
-    divider()
-
-    sectionTitle('Resumo da Conta')
-    row(`Hospedagem (${nights} ${nights === 1 ? 'noite' : 'noites'} × ${Number(stay.room_value).toLocaleString('pt-AO')} Kz)`, `${roomTotal.toLocaleString('pt-AO')} Kz`)
-    row('Lavandaria', `${laundryTotal.toLocaleString('pt-AO')} Kz`)
-    row('Restaurante', `${restaurantTotal.toLocaleString('pt-AO')} Kz`)
-    row('Bar', `${barTotal.toLocaleString('pt-AO')} Kz`)
-    row('Frigobar', `${minibarTotal.toLocaleString('pt-AO')} Kz`)
-    doc.setDrawColor(220, 220, 220)
-    doc.line(marginX, y - 2, pageWidth - marginX, y - 2)
-    doc.setFont('helvetica', 'bold')
-    row('Subtotal', `${subtotal.toLocaleString('pt-AO')} Kz`)
-    doc.setFont('helvetica', 'normal')
-    divider()
-
-    sectionTitle('Pagamentos')
-    paymentsList.forEach(p => {
-      doc.setFontSize(9)
-      doc.setTextColor(...gray)
-      doc.text(`${new Date(p.paid_at).toLocaleDateString('pt-PT')} — ${sourceLabel(p.source_type)} (${methodLabel(p.method, p.bank_name)})`, marginX + 4, y)
-      doc.setTextColor(...dark)
-      doc.text(`${Number(p.amount).toLocaleString('pt-AO')} Kz`, pageWidth - marginX, y, { align: 'right' })
-      y += 5.5
-      doc.setFontSize(10)
-    })
-    y += 1
-    doc.setFont('helvetica', 'bold')
-    row('Total pago', `${totalPaid.toLocaleString('pt-AO')} Kz`)
-    doc.setFont('helvetica', 'normal')
-    if (stay.billed_to === 'empresa') {
-      row('Facturação', `Crédito — ${stay.companies?.name || 'empresa não especificada'}`)
-    }
-    y += 4
-
-    const saldoColor: [number, number, number] = saldoPendente > 0 ? [255, 251, 235] : [240, 253, 244]
-    const saldoTextColor: [number, number, number] = saldoPendente > 0 ? [180, 83, 9] : [21, 128, 61]
-    doc.setFillColor(...saldoColor)
-    doc.roundedRect(marginX, y, pageWidth - marginX * 2, 16, 2, 2, 'F')
-    doc.setTextColor(...dark)
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(12)
-    doc.text('Saldo Pendente', marginX + 4, y + 10.5)
-    doc.setTextColor(...saldoTextColor)
-    doc.setFontSize(14)
-    doc.text(`${saldoPendente.toLocaleString('pt-AO')} Kz`, pageWidth - marginX - 4, y + 10.5, { align: 'right' })
-    y += 30
-
-    // Linhas de assinatura — hóspede e rececionista
-    const pageHeight = doc.internal.pageSize.getHeight()
-    const assinaturaY = Math.max(y, pageHeight - 55)
-    const colWidth = (pageWidth - marginX * 2 - 10) / 2
-
-    doc.setDrawColor(150, 150, 150)
-    doc.line(marginX, assinaturaY, marginX + colWidth, assinaturaY)
-    doc.line(marginX + colWidth + 10, assinaturaY, marginX + colWidth * 2 + 10, assinaturaY)
-
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(9)
-    doc.setTextColor(...gray)
-    doc.text('Assinatura do Hóspede', marginX, assinaturaY + 6)
-    doc.text('Assinatura do Rececionista', marginX + colWidth + 10, assinaturaY + 6)
-
-    doc.setFontSize(8)
-    doc.text(`Gerado em ${now.toLocaleString('pt-PT')} pelo sistema de gestão S&I Freitas`, marginX, pageHeight - 10)
-
-    const blob = doc.output('blob')
-    const path = `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}/${stay.id}.pdf`
-
-    const { error: uploadError } = await supabase.storage
-      .from('checkout-docs')
-      .upload(path, blob, { contentType: 'application/pdf', upsert: true })
-
-    if (uploadError) {
-      console.error('Erro ao guardar PDF:', uploadError.message)
-      return
-    }
-
-    await supabase.from('checkout_documents').upsert({
-      property_id: PROPERTY_ID,
-      stay_id: stay.id,
-      pdf_url: path,
-      invoice_number: invoiceNumber ?? null,
-      generated_at: now.toISOString(),
-    }, { onConflict: 'stay_id' })
-  }
-
-  async function finalizarHospedagem() {
-    if (!stay) return
-    if (saldoPendente > 0) {
-      const ok = confirm(
-        `Ainda há um saldo pendente de ${saldoPendente.toLocaleString('pt-AO')} Kz.\n\nFinalizar mesmo assim? O valor ficará registado como dívida.`
-      )
-      if (!ok) return
-    }
-    setFinalizing(true)
-    const supabase = createClient()
-    const { error } = await supabase
-      .from('stays')
-      .update({
-        check_out_at: new Date().toISOString(),
-        status: 'finalizado',
-        checked_out_verified_by: staffId,
-        amount_due: saldoPendente,
+    const { data: sale, error: saleError } = await supabase
+      .from('restaurant_sales')
+      .insert({
+        property_id: PROPERTY_ID,
+        guest_type: guestType,
+        stay_id: guestType === 'hospede' ? selectedStay?.id : null,
+        guest_name: guestType === 'nao_hospede' ? (guestName || null) : null,
+        value: total,
+        amount_received: payingNow ? (paymentMethod === 'numerario' ? Number(amountReceived) : total) : null,
+        change_given: payingNow && paymentMethod === 'numerario' ? troco : null,
+        payment_method: payingNow ? paymentMethod : null,
+        bank_name: (payingNow && paymentMethod === 'tpa') ? paymentBank : null,
+        company_id: isCredito ? companyId : null,
+        recorded_by: attendantId,
       })
-      .eq('id', stay.id)
+      .select()
+      .single()
 
-    if (error) { alert('Erro ao finalizar check-out: ' + error.message); setFinalizing(false); return }
+    if (saleError) { alert('Erro ao registar venda: ' + saleError.message); setSaving(false); return }
 
-    await gerarEGuardarDocumento()
+    const items = cart.map(c => ({
+      sale_id: sale.id,
+      menu_item_id: c.menuItem.id,
+      quantity: c.quantity,
+      unit_price: c.menuItem.price,
+    }))
+    const { error: itemsError } = await supabase.from('restaurant_sale_items').insert(items)
+    if (itemsError) { alert('Venda registada mas houve erro nos itens: ' + itemsError.message) }
 
-    setDone(true)
-    setFinalizing(false)
-    setTimeout(() => router.push('/quartos'), 1800)
+    if (guestType === 'hospede' && paymentTiming === 'agora' && selectedStay) {
+      await supabase.from('payments').insert({
+        property_id: PROPERTY_ID,
+        source_type: 'restaurant',
+        source_id: selectedStay.id,
+        amount: total,
+        method: paymentMethod,
+        bank_name: paymentMethod === 'tpa' ? paymentBank : null,
+        recorded_by: attendantId,
+      })
+    }
+
+    setSuccess(true)
+    setSaving(false)
+    setTimeout(() => {
+      setCart([])
+      setSelectedStay(null)
+      setStaySearch('')
+      setGuestName('')
+      setAmountReceived('')
+      setPaymentTiming('debitar')
+      setAttendantId('')
+      setSuccess(false)
+    }, 1800)
   }
 
-  if (done) {
-    return (
-      <div className="max-w-2xl mx-auto">
-        <div className="card border-green-300 bg-green-50 flex items-center gap-3 text-green-700 py-6 justify-center">
-          <CheckCircle size={22} />
-          <span className="font-semibold text-lg">Check-out finalizado — quarto enviado para limpeza.</span>
-        </div>
-        <p className="text-xs text-ink-muted text-center mt-3 flex items-center justify-center gap-1.5">
-          <FileDown size={13}/> Documento guardado no Arquivo Check-out
-        </p>
-      </div>
-    )
-  }
+  const grouped = menuItems.reduce((acc: Record<string, MenuItem[]>, item) => {
+    const key = item.category || 'Outros'
+    acc[key] = acc[key] || []
+    acc[key].push(item)
+    return acc
+  }, {})
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
-      <div>
-        <button onClick={() => setStay(null)} className="text-xs text-brand-500 font-medium mb-2">
-          ← Procurar outra estadia
-        </button>
+    <div className="max-w-4xl mx-auto grid grid-cols-3 gap-6">
+      <div className="col-span-2 space-y-4">
         <h1 className="text-xl font-semibold text-ink flex items-center gap-2">
-          <LogOut size={20} className="text-brand-500" /> Check-out — Quarto {stay.rooms?.number}
+          <UtensilsCrossed size={20} className="text-brand-500" /> Restaurante — Venda
         </h1>
-        <p className="text-sm text-ink-muted mt-0.5">
-          {stay.guests?.full_name} {stay.guests?.surname} · desde {new Date(stay.check_in_at).toLocaleDateString('pt-PT')}
-        </p>
+
+        {Object.entries(grouped).map(([category, catItems]) => (
+          <div key={category} className="card space-y-2">
+            <h3 className="text-xs font-bold text-ink-muted uppercase tracking-wide">{category}</h3>
+            <div className="grid grid-cols-2 gap-2">
+              {catItems.map(item => (
+                <button
+                  key={item.id}
+                  onClick={() => addToCart(item)}
+                  className="text-left px-3 py-2.5 border border-border rounded-lg hover:border-brand-500 transition"
+                >
+                  <p className="font-medium text-sm text-ink">{item.name}</p>
+                  <p className="text-xs text-ink-muted">{Number(item.price).toLocaleString('pt-AO')} Kz</p>
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+        {menuItems.length === 0 && (
+          <p className="text-sm text-ink-muted text-center py-8">
+            Nenhum prato no menu ainda. Adiciona pratos em Sala de Refeições → Gerir Menu.
+          </p>
+        )}
       </div>
 
-      {loadingBreakdown ? (
-        <div className="card text-center text-sm text-ink-muted py-8">A calcular valores...</div>
-      ) : (
-        <>
-          <div className="card space-y-3">
-            <h2 className="text-xs font-bold text-ink-muted uppercase tracking-wide">Resumo da conta</h2>
-            <div className="space-y-2 text-sm">
-              <div className="flex justify-between"><span className="text-ink-muted">Hospedagem ({nights} {nights === 1 ? 'noite' : 'noites'} × {Number(stay.room_value).toLocaleString('pt-AO')} Kz)</span><span className="font-medium">{roomTotal.toLocaleString('pt-AO')} Kz</span></div>
-              <div className="flex justify-between items-center"><span className="text-ink-muted flex items-center gap-1.5"><ShirtIcon size={13}/> Lavandaria</span><span className="font-medium">{laundryTotal.toLocaleString('pt-AO')} Kz</span></div>
-              <div className="flex justify-between items-center"><span className="text-ink-muted flex items-center gap-1.5"><UtensilsCrossed size={13}/> Restaurante</span><span className="font-medium">{restaurantTotal.toLocaleString('pt-AO')} Kz</span></div>
-              <div className="flex justify-between items-center"><span className="text-ink-muted flex items-center gap-1.5"><Wine size={13}/> Bar</span><span className="font-medium">{barTotal.toLocaleString('pt-AO')} Kz</span></div>
-              <div className="flex justify-between pt-2 border-t border-border font-semibold"><span>Subtotal</span><span>{subtotal.toLocaleString('pt-AO')} Kz</span></div>
-            </div>
+      <div className="space-y-4">
+        <div className="card space-y-2">
+          <h2 className="text-xs font-bold text-ink-muted uppercase tracking-wide">Quem está a atender?</h2>
+          <select className="input" value={attendantId} onChange={e => setAttendantId(e.target.value)}>
+            <option value="">Seleccionar funcionário</option>
+            {staffList.map(s => (
+              <option key={s.id} value={s.id}>{s.full_name}</option>
+            ))}
+          </select>
+        </div>
 
-            <div className="flex gap-2 pt-2 border-t border-border">
-              <select className="input flex-1" value={selectedMinibarProductId} onChange={e => setSelectedMinibarProductId(e.target.value)}>
-                <option value="">Adicionar consumo de frigobar...</option>
-                {minibarProducts.map(p => (
-                  <option key={p.id} value={p.id}>{p.name} — {Number(p.price).toLocaleString('pt-AO')} Kz</option>
-                ))}
-              </select>
-              <input type="number" min="1" className="input w-20" value={minibarQty} onChange={e => setMinibarQty(e.target.value)} />
-              <button
-                type="button"
-                onClick={registarConsumoFrigobar}
-                disabled={savingMinibar || !selectedMinibarProductId}
-                className="btn-secondary px-4 flex items-center gap-1.5"
-              >
-                <Plus size={14}/> {savingMinibar ? '...' : 'Add'}
-              </button>
-            </div>
-            {minibarProducts.length === 0 && (
-              <p className="text-xs text-ink-muted">Ainda não há produtos de frigobar configurados. Gerir em Frigobar → Produtos.</p>
-            )}
+        <div className="card space-y-3">
+          <h2 className="text-xs font-bold text-ink-muted uppercase tracking-wide">Cliente</h2>
+          <div className="flex gap-2">
+            <button
+              onClick={() => { setGuestType('nao_hospede'); setPaymentTiming('agora') }}
+              className={`flex-1 py-1.5 rounded-lg text-sm font-medium ${guestType === 'nao_hospede' ? 'bg-brand-500 text-white' : 'bg-surface-muted text-ink-muted'}`}
+            >
+              Não-hóspede
+            </button>
+            <button
+              onClick={() => { setGuestType('hospede'); setPaymentTiming('debitar') }}
+              className={`flex-1 py-1.5 rounded-lg text-sm font-medium ${guestType === 'hospede' ? 'bg-brand-500 text-white' : 'bg-surface-muted text-ink-muted'}`}
+            >
+              Hóspede
+            </button>
           </div>
 
-          <div className="card space-y-3">
-            <h2 className="text-xs font-bold text-ink-muted uppercase tracking-wide flex items-center gap-1.5">
-              <Wallet size={14}/> Pagamentos
-            </h2>
-            <div className="space-y-2 text-sm">
-              {paymentsList.length > 0 ? (
-                <div className="space-y-1 pt-1">
-                  <p className="text-xs text-ink-light">Pagamentos registados:</p>
-                  {paymentsList.map((p, i) => (
-                    <div key={i} className="flex justify-between text-xs pl-2">
-                      <span className="text-ink-muted">
-                        {new Date(p.paid_at).toLocaleDateString('pt-PT')} · {sourceLabel(p.source_type)} · {methodLabel(p.method, p.bank_name)}
-                      </span>
-                      <span className="font-medium">{Number(p.amount).toLocaleString('pt-AO')} Kz</span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-xs text-ink-muted">Ainda não há pagamentos registados.</p>
-              )}
-
-              <div className="flex justify-between pt-2 border-t border-border font-semibold"><span>Total pago</span><span>{totalPaid.toLocaleString('pt-AO')} Kz</span></div>
+          {guestType === 'nao_hospede' ? (
+            <input type="text" className="input" placeholder="Nome (opcional)" value={guestName} onChange={e => setGuestName(e.target.value)} />
+          ) : selectedStay ? (
+            <div className="flex items-center justify-between bg-surface-muted rounded-lg p-2.5 text-sm">
+              <span className="font-medium">Quarto {selectedStay.rooms?.number} — {selectedStay.guests?.full_name}</span>
+              <button onClick={() => setSelectedStay(null)} className="text-brand-500 text-xs font-semibold">Trocar</button>
             </div>
+          ) : (
+            <form onSubmit={searchStays} className="space-y-2">
+              <div className="relative">
+                <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-light" />
+                <input type="text" className="input pl-8 text-sm" placeholder="Quarto, nome ou BI..." value={staySearch} onChange={e => setStaySearch(e.target.value)} />
+              </div>
+              {stayResults.map(s => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => { setSelectedStay(s); setStayResults([]) }}
+                  className="w-full text-left text-sm px-2.5 py-1.5 rounded-lg hover:bg-surface-muted"
+                >
+                  Quarto {s.rooms?.number} — {s.guests?.full_name} {s.guests?.surname}
+                </button>
+              ))}
+            </form>
+          )}
+        </div>
 
-            <div className="space-y-2 pt-2 border-t border-border">
-              <p className="text-xs text-ink-light">Registar novo pagamento</p>
+        <div className="card space-y-2">
+          <h2 className="text-xs font-bold text-ink-muted uppercase tracking-wide">Pedido</h2>
+          {cart.length === 0 ? (
+            <p className="text-xs text-ink-muted py-2">Nenhum item selecionado.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {cart.map(c => (
+                <div key={c.menuItem.id} className="flex items-center justify-between text-sm">
+                  <span className="flex-1">{c.menuItem.name}</span>
+                  <div className="flex items-center gap-1.5">
+                    <button onClick={() => changeQty(c.menuItem.id, -1)} className="w-5 h-5 rounded-full bg-surface-muted flex items-center justify-center"><Minus size={11}/></button>
+                    <span className="w-5 text-center">{c.quantity}</span>
+                    <button onClick={() => changeQty(c.menuItem.id, 1)} className="w-5 h-5 rounded-full bg-surface-muted flex items-center justify-center"><Plus size={11}/></button>
+                  </div>
+                </div>
+              ))}
+              <div className="flex justify-between pt-2 border-t border-border font-semibold text-sm">
+                <span>Total</span><span>{total.toLocaleString('pt-AO')} Kz</span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="card space-y-3">
+          <h2 className="text-xs font-bold text-ink-muted uppercase tracking-wide">Pagamento</h2>
+          <div className="flex gap-2">
+            {guestType === 'hospede' && selectedStay && (
+              <button
+                onClick={() => setPaymentTiming('debitar')}
+                className={`flex-1 py-1.5 rounded-lg text-xs font-medium ${paymentTiming === 'debitar' ? 'bg-brand-500 text-white' : 'bg-surface-muted text-ink-muted'}`}
+              >
+                Debitar na conta
+              </button>
+            )}
+            <button
+              onClick={() => setPaymentTiming('agora')}
+              className={`flex-1 py-1.5 rounded-lg text-xs font-medium ${paymentTiming === 'agora' ? 'bg-brand-500 text-white' : 'bg-surface-muted text-ink-muted'}`}
+            >
+              Pago agora
+            </button>
+            <button
+              onClick={() => setPaymentTiming('credito_empresa')}
+              className={`flex-1 py-1.5 rounded-lg text-xs font-medium ${paymentTiming === 'credito_empresa' ? 'bg-brand-500 text-white' : 'bg-surface-muted text-ink-muted'}`}
+            >
+              A crédito (empresa)
+            </button>
+          </div>
+
+          {isCredito ? (
+            <>
+              <select className="input" value={companyId} onChange={e => setCompanyId(e.target.value)}>
+                <option value="">Seleccionar empresa</option>
+                {companies.map(c => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+              {companies.length === 0 && (
+                <p className="text-xs text-ink-muted">Nenhuma empresa registada — gerir em Empresas.</p>
+              )}
+              <p className="text-xs text-ink-muted bg-surface-muted rounded-lg p-2.5">
+                Este valor fica pendente, por conta da empresa seleccionada — não é cobrado agora.
+              </p>
+            </>
+          ) : payingNow ? (
+            <>
               <div className="flex gap-2">
-                <select className="input flex-1" value={newPaymentSource} onChange={e => setNewPaymentSource(e.target.value)}>
-                  <option value="stay">Hospedagem</option>
-                  <option value="laundry">Lavandaria</option>
-                  <option value="restaurant">Restaurante</option>
-                  <option value="bar">Bar</option>
-                  <option value="minibar">Frigobar</option>
-                </select>
-                <select className="input w-32" value={newPaymentMethod} onChange={e => setNewPaymentMethod(e.target.value)}>
+                <select className="input flex-1" value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)}>
                   <option value="numerario">Numerário</option>
                   <option value="tpa">TPA</option>
                   <option value="transferencia">Transferência</option>
                 </select>
-                {newPaymentMethod === 'tpa' && (
-                  <select className="input w-24" value={newPaymentBank} onChange={e => setNewPaymentBank(e.target.value)}>
+                {paymentMethod === 'tpa' && (
+                  <select className="input w-24" value={paymentBank} onChange={e => setPaymentBank(e.target.value)}>
                     <option value="BIC">BIC</option>
                     <option value="BFA">BFA</option>
                     <option value="BAI">BAI</option>
                   </select>
                 )}
               </div>
-              <div className="flex gap-2">
-                <input
-                  type="number"
-                  min="0"
-                  className="input flex-1"
-                  placeholder="Valor (Kz)"
-                  value={newPaymentAmount}
-                  onChange={e => setNewPaymentAmount(e.target.value)}
-                />
-                <button
-                  type="button"
-                  onClick={registarPagamento}
-                  disabled={savingPayment || !newPaymentAmount}
-                  className="btn-secondary px-4"
-                >
-                  {savingPayment ? '...' : 'Registar'}
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div className={`card ${saldoPendente > 0 ? 'border-amber-300 bg-amber-50' : 'border-green-300 bg-green-50'}`}>
-            <div className="flex justify-between items-center">
-              <span className="font-semibold text-ink">Saldo Pendente</span>
-              <span className={`text-xl font-bold ${saldoPendente > 0 ? 'text-amber-700' : 'text-green-700'}`}>
-                {saldoPendente.toLocaleString('pt-AO')} Kz
-              </span>
-            </div>
-            {saldoPendente > 0 && (
-              <div className="mt-3 pt-3 border-t border-amber-200 space-y-2">
-                <p className="text-xs text-amber-800">Registar o pagamento deste saldo:</p>
-                <div className="flex gap-2">
-                  <select className="input flex-1" value={settleMethod} onChange={e => setSettleMethod(e.target.value)}>
-                    <option value="numerario">Numerário</option>
-                    <option value="tpa">TPA</option>
-                    <option value="transferencia">Transferência</option>
-                  </select>
-                  {settleMethod === 'tpa' && (
-                    <select className="input w-24" value={settleBank} onChange={e => setSettleBank(e.target.value)}>
-                      <option value="BIC">BIC</option>
-                      <option value="BFA">BFA</option>
-                      <option value="BAI">BAI</option>
-                    </select>
+              {paymentMethod === 'numerario' ? (
+                <>
+                  <input type="number" min="0" className="input" placeholder="Valor entregue (Kz)" value={amountReceived} onChange={e => setAmountReceived(e.target.value)} />
+                  {amountReceived && Number(amountReceived) >= total && (
+                    <div className="flex justify-between text-sm bg-surface-muted rounded-lg p-2.5">
+                      <span className="text-ink-muted">Troco</span>
+                      <span className="font-bold text-brand-500">{troco.toLocaleString('pt-AO')} Kz</span>
+                    </div>
                   )}
-                  <button
-                    type="button"
-                    onClick={liquidarSaldo}
-                    disabled={settling}
-                    className="btn-primary px-5 whitespace-nowrap"
-                  >
-                    {settling ? 'A registar...' : `Pagar ${saldoPendente.toLocaleString('pt-AO')} Kz`}
-                  </button>
+                </>
+              ) : (
+                <div className="flex justify-between text-sm bg-surface-muted rounded-lg p-2.5">
+                  <span className="text-ink-muted">Valor a cobrar</span>
+                  <span className="font-bold text-brand-500">{total.toLocaleString('pt-AO')} Kz</span>
                 </div>
-              </div>
-            )}
-          </div>
-
-          {stay.billed_to === 'empresa' && (
-            <div className="card border-brand-200 bg-brand-50 text-sm text-brand-700">
-              Facturação a crédito — {stay.companies?.name || 'empresa não especificada'}
-            </div>
+              )}
+            </>
+          ) : (
+            <p className="text-xs text-ink-muted bg-surface-muted rounded-lg p-2.5">
+              Este valor vai ser somado à conta do hóspede e cobrado no check-out.
+            </p>
           )}
+        </div>
 
-          <button
-            onClick={finalizarHospedagem}
-            disabled={finalizing}
-            className="btn-primary w-full py-3"
-          >
-            {finalizing ? 'A finalizar...' : 'Finalizar Hospedagem'}
+        {success ? (
+          <div className="card border-green-300 bg-green-50 flex items-center gap-2 text-green-700 justify-center py-3">
+            <CheckCircle size={18}/> <span className="font-medium">Venda registada!</span>
+          </div>
+        ) : (
+          <button onClick={finalizeSale} disabled={!canFinalize || saving} className="btn-primary w-full py-3">
+            {saving ? 'A finalizar...' : 'Finalizar Venda'}
           </button>
-        </>
-      )}
+        )}
+      </div>
     </div>
   )
 }

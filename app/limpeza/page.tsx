@@ -23,6 +23,7 @@ export default function LimpezaPage() {
   const [staffId, setStaffId] = useState('')
   const [attendants, setAttendants] = useState<{ id: string; full_name: string }[]>([])
   const [attendantId, setAttendantId] = useState('')
+  const [companies, setCompanies] = useState<{ id: string; name: string }[]>([])
   const [rooms, setRooms] = useState<RoomInCleaning[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -31,58 +32,15 @@ export default function LimpezaPage() {
   const [saving, setSaving] = useState(false)
 
   const [showLaundryForm, setShowLaundryForm] = useState(false)
+  const [laundryMode, setLaundryMode] = useState<'hospede' | 'empresa'>('hospede')
   const [staySearch, setStaySearch] = useState('')
   const [stayResults, setStayResults] = useState<ActiveStayOption[]>([])
   const [selectedStay, setSelectedStay] = useState<ActiveStayOption | null>(null)
+  const [laundryCompanyId, setLaundryCompanyId] = useState('')
   const [laundryDescription, setLaundryDescription] = useState('')
   const [laundryValue, setLaundryValue] = useState('')
   const [savingLaundry, setSavingLaundry] = useState(false)
   const [laundrySuccess, setLaundrySuccess] = useState(false)
-
-  async function searchStays(e: React.FormEvent) {
-    e.preventDefault()
-    if (!staySearch.trim()) return
-    const supabase = createClient()
-    const { data } = await supabase
-      .from('stays')
-      .select('id, room_id, rooms(number), guests(full_name, surname)')
-      .eq('property_id', PROPERTY_ID)
-      .eq('status', 'ativo')
-
-    const q = staySearch.trim().toLowerCase()
-    const filtered = (data ?? []).filter((s: any) =>
-      s.rooms?.number?.toLowerCase().includes(q) ||
-      s.guests?.full_name?.toLowerCase().includes(q) ||
-      s.guests?.surname?.toLowerCase().includes(q)
-    )
-    setStayResults(filtered as any)
-  }
-
-  async function registarLavandaria() {
-    if (!selectedStay || !laundryValue || !attendantId) return
-    setSavingLaundry(true)
-    const supabase = createClient()
-    const { error } = await supabase.from('laundry_records').insert({
-      property_id: PROPERTY_ID,
-      stay_id: selectedStay.id,
-      room_id: selectedStay.room_id,
-      description: laundryDescription || null,
-      value: Number(laundryValue),
-      recorded_by: attendantId,
-    })
-    if (error) { alert('Erro: ' + error.message); setSavingLaundry(false); return }
-
-    setLaundrySuccess(true)
-    setSavingLaundry(false)
-    setTimeout(() => {
-      setLaundrySuccess(false)
-      setShowLaundryForm(false)
-      setSelectedStay(null)
-      setStaySearch('')
-      setLaundryDescription('')
-      setLaundryValue('')
-    }, 1500)
-  }
 
   async function load() {
     const supabase = createClient()
@@ -109,8 +67,65 @@ export default function LimpezaPage() {
       .eq('active', true)
       .order('full_name')
       .then(({ data }) => setAttendants(data ?? []))
+    supabase
+      .from('companies')
+      .select('id, name')
+      .eq('property_id', PROPERTY_ID)
+      .eq('active', true)
+      .order('name')
+      .then(({ data }) => setCompanies(data ?? []))
     load()
   }, [])
+
+  async function searchStays(e: React.FormEvent) {
+    e.preventDefault()
+    if (!staySearch.trim()) return
+    const supabase = createClient()
+    const { data } = await supabase
+      .from('stays')
+      .select('id, room_id, rooms(number), guests(full_name, surname)')
+      .eq('property_id', PROPERTY_ID)
+      .eq('status', 'ativo')
+
+    const q = staySearch.trim().toLowerCase()
+    const filtered = (data ?? []).filter((s: any) =>
+      s.rooms?.number?.toLowerCase().includes(q) ||
+      s.guests?.full_name?.toLowerCase().includes(q) ||
+      s.guests?.surname?.toLowerCase().includes(q)
+    )
+    setStayResults(filtered as any)
+  }
+
+  const laundryTargetReady = laundryMode === 'hospede' ? !!selectedStay : !!laundryCompanyId
+
+  async function registarLavandaria() {
+    if (!laundryTargetReady || !laundryValue || !attendantId) return
+    setSavingLaundry(true)
+    const supabase = createClient()
+    const { error } = await supabase.from('laundry_records').insert({
+      property_id: PROPERTY_ID,
+      stay_id: laundryMode === 'hospede' ? selectedStay?.id : null,
+      room_id: laundryMode === 'hospede' ? selectedStay?.room_id : null,
+      company_id: laundryMode === 'empresa' ? laundryCompanyId : null,
+      description: laundryDescription || null,
+      value: Number(laundryValue),
+      recorded_by: attendantId,
+    })
+    if (error) { alert('Erro: ' + error.message); setSavingLaundry(false); return }
+
+    setLaundrySuccess(true)
+    setSavingLaundry(false)
+    setTimeout(() => {
+      setLaundrySuccess(false)
+      setShowLaundryForm(false)
+      setSelectedStay(null)
+      setStaySearch('')
+      setStayResults([])
+      setLaundryCompanyId('')
+      setLaundryDescription('')
+      setLaundryValue('')
+    }, 1500)
+  }
 
   async function finalizarLimpeza(roomId: string) {
     if (!attendantId) return
@@ -199,14 +214,72 @@ export default function LimpezaPage() {
         {showLaundryForm && (
           laundrySuccess ? (
             <div className="flex items-center gap-2 text-green-700 py-2">
-              <CheckCircle size={18} /> <span className="font-medium text-sm">Lavandaria registada e debitada na conta!</span>
+              <CheckCircle size={18} /> <span className="font-medium text-sm">Lavandaria registada!</span>
             </div>
-          ) : selectedStay ? (
+          ) : (
             <div className="space-y-3 pt-2 border-t border-border">
-              <div className="flex items-center justify-between bg-surface-muted rounded-lg p-2.5 text-sm">
-                <span className="font-medium">Quarto {selectedStay.rooms?.number} — {selectedStay.guests?.full_name}</span>
-                <button onClick={() => setSelectedStay(null)} className="text-brand-500 text-xs font-semibold">Trocar</button>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setLaundryMode('hospede')}
+                  className={`flex-1 py-1.5 rounded-lg text-sm font-medium ${laundryMode === 'hospede' ? 'bg-brand-500 text-white' : 'bg-surface-muted text-ink-muted'}`}
+                >
+                  Hóspede (conta do quarto)
+                </button>
+                <button
+                  onClick={() => setLaundryMode('empresa')}
+                  className={`flex-1 py-1.5 rounded-lg text-sm font-medium ${laundryMode === 'empresa' ? 'bg-brand-500 text-white' : 'bg-surface-muted text-ink-muted'}`}
+                >
+                  A crédito (empresa)
+                </button>
               </div>
+
+              {laundryMode === 'hospede' ? (
+                selectedStay ? (
+                  <div className="flex items-center justify-between bg-surface-muted rounded-lg p-2.5 text-sm">
+                    <span className="font-medium">Quarto {selectedStay.rooms?.number} — {selectedStay.guests?.full_name}</span>
+                    <button onClick={() => setSelectedStay(null)} className="text-brand-500 text-xs font-semibold">Trocar</button>
+                  </div>
+                ) : (
+                  <form onSubmit={searchStays} className="space-y-2">
+                    <div className="relative">
+                      <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-light" />
+                      <input
+                        type="text"
+                        className="input pl-8 text-sm"
+                        placeholder="Quarto ou nome do hóspede..."
+                        value={staySearch}
+                        onChange={e => setStaySearch(e.target.value)}
+                      />
+                    </div>
+                    {stayResults.map(s => (
+                      <button
+                        key={s.id}
+                        type="button"
+                        onClick={() => { setSelectedStay(s); setStayResults([]) }}
+                        className="w-full text-left text-sm px-2.5 py-1.5 rounded-lg hover:bg-surface-muted"
+                      >
+                        Quarto {s.rooms?.number} — {s.guests?.full_name} {s.guests?.surname}
+                      </button>
+                    ))}
+                  </form>
+                )
+              ) : (
+                <>
+                  <select className="input" value={laundryCompanyId} onChange={e => setLaundryCompanyId(e.target.value)}>
+                    <option value="">Seleccionar empresa</option>
+                    {companies.map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                  {companies.length === 0 && (
+                    <p className="text-xs text-ink-muted">Nenhuma empresa registada — gerir em Empresas.</p>
+                  )}
+                  <p className="text-xs text-ink-muted bg-surface-muted rounded-lg p-2.5">
+                    Este valor fica pendente, por conta da empresa seleccionada.
+                  </p>
+                </>
+              )}
+
               <input
                 type="text"
                 className="input"
@@ -224,36 +297,12 @@ export default function LimpezaPage() {
               />
               <button
                 onClick={registarLavandaria}
-                disabled={savingLaundry || !laundryValue || !attendantId}
+                disabled={savingLaundry || !laundryValue || !attendantId || !laundryTargetReady}
                 className="btn-primary w-full py-2 text-sm flex items-center justify-center gap-1.5"
               >
-                <Plus size={15} /> {savingLaundry ? 'A registar...' : 'Registar e Debitar na Conta'}
+                <Plus size={15} /> {savingLaundry ? 'A registar...' : laundryMode === 'hospede' ? 'Registar e Debitar na Conta' : 'Registar a Crédito'}
               </button>
             </div>
-          ) : (
-            <form onSubmit={searchStays} className="space-y-2 pt-2 border-t border-border">
-              <div className="relative">
-                <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-light" />
-                <input
-                  type="text"
-                  className="input pl-8 text-sm"
-                  placeholder="Quarto ou nome do hóspede..."
-                  value={staySearch}
-                  onChange={e => setStaySearch(e.target.value)}
-                  autoFocus
-                />
-              </div>
-              {stayResults.map(s => (
-                <button
-                  key={s.id}
-                  type="button"
-                  onClick={() => { setSelectedStay(s); setStayResults([]) }}
-                  className="w-full text-left text-sm px-2.5 py-1.5 rounded-lg hover:bg-surface-muted"
-                >
-                  Quarto {s.rooms?.number} — {s.guests?.full_name} {s.guests?.surname}
-                </button>
-              ))}
-            </form>
           )
         )}
       </div>

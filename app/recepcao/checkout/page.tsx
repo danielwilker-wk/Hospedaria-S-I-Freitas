@@ -86,6 +86,10 @@ export default function CheckOutPage() {
   const [minibarQty, setMinibarQty] = useState('1')
   const [savingMinibar, setSavingMinibar] = useState(false)
 
+  // Débitos de crédito — consumos adicionados à conta sem pagamento imediato
+  const [debitosCredito, setDebitosCredito] = useState<{source: string; amount: number}[]>([])
+  const totalDebitosCredito = debitosCredito.reduce((sum, d) => sum + d.amount, 0)
+
   useEffect(() => {
     const supabase = createClient()
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -185,7 +189,7 @@ export default function CheckOutPage() {
   // ── Cálculos principais ──────────────────────────────────────
   const diarias = calcDiarias(stay.check_in_at, stay.check_out_planned_at)
   const roomTotal = Number(stay.room_value) * diarias
-  const subtotal = roomTotal + laundryTotal + restaurantTotal + barTotal + minibarTotal
+  const subtotal = roomTotal + laundryTotal + restaurantTotal + barTotal + minibarTotal + totalDebitosCredito
   const totalPaid = paymentsMade
   const saldoPendente = subtotal - totalPaid
   const isCredito = stay.billed_to === 'empresa'
@@ -220,6 +224,16 @@ export default function CheckOutPage() {
     if (error) { alert('Erro ao registar pagamento: ' + error.message); setSavingPayment(false); return }
     setPaymentsList(prev => [data, ...prev])
     setPaymentsMade(prev => prev + Number(newPaymentAmount))
+    setNewPaymentAmount('')
+    setNewPaymentSource('stay')
+    setSavingPayment(false)
+  }
+
+  async function adicionarDebitoCredito() {
+    if (!newPaymentAmount || Number(newPaymentAmount) <= 0) return
+    setSavingPayment(true)
+    // Guarda localmente — será reflectido no total a crédito
+    setDebitosCredito(prev => [...prev, { source: newPaymentSource, amount: Number(newPaymentAmount) }])
     setNewPaymentAmount('')
     setNewPaymentSource('stay')
     setSavingPayment(false)
@@ -514,15 +528,17 @@ export default function CheckOutPage() {
             </div>
           </div>
 
-          {/* Pagamentos — só mostra secção completa se não for crédito */}
+          {/* Pagamentos / Conta */}
           <div className="card space-y-3">
             <h2 className="text-xs font-bold text-ink-muted uppercase tracking-wide flex items-center gap-1.5">
-              <Wallet size={14}/> Pagamentos
+              <Wallet size={14}/> {isCredito ? 'Conta do hóspede' : 'Pagamentos'}
             </h2>
             <div className="space-y-2 text-sm">
               {paymentsList.length > 0 ? (
                 <div className="space-y-1">
-                  <p className="text-xs text-ink-light">Pagamentos registados:</p>
+                  <p className="text-xs text-ink-light">
+                    {isCredito ? 'Valores já pagos directamente:' : 'Pagamentos registados:'}
+                  </p>
                   {paymentsList.map((p, i) => (
                     <div key={i} className="flex justify-between text-xs pl-2">
                       <span className="text-ink-muted">
@@ -533,57 +549,132 @@ export default function CheckOutPage() {
                   ))}
                 </div>
               ) : (
-                <p className="text-xs text-ink-muted">Ainda não há pagamentos registados.</p>
+                <p className="text-xs text-ink-muted">
+                  {isCredito ? 'Nenhum pagamento directo registado.' : 'Ainda não há pagamentos registados.'}
+                </p>
               )}
               <div className="flex justify-between pt-2 border-t border-border font-semibold">
-                <span>Total pago</span><span>{totalPaid.toLocaleString('pt-AO')} Kz</span>
+                <span>Total pago directamente</span>
+                <span>{totalPaid.toLocaleString('pt-AO')} Kz</span>
               </div>
             </div>
 
-            {/* Registar pagamento adicional — disponível mesmo para crédito (ex: pagamento parcial) */}
-            <div className="space-y-2 pt-2 border-t border-border">
-              <p className="text-xs text-ink-light">Registar pagamento adicional</p>
-              <div className="flex gap-2">
-                <select className="input flex-1" value={newPaymentSource} onChange={e => setNewPaymentSource(e.target.value)}>
-                  <option value="stay">Hospedagem</option>
-                  <option value="laundry">Lavandaria</option>
-                  <option value="restaurant">Restaurante</option>
-                  <option value="bar">Bar</option>
-                  <option value="minibar">Frigobar</option>
-                </select>
-                <select className="input w-32" value={newPaymentMethod} onChange={e => setNewPaymentMethod(e.target.value)}>
-                  <option value="numerario">Numerário</option>
-                  <option value="tpa">TPA</option>
-                  <option value="transferencia">Transferência</option>
-                </select>
-                {newPaymentMethod === 'tpa' && (
-                  <select className="input w-24" value={newPaymentBank} onChange={e => setNewPaymentBank(e.target.value)}>
-                    {['BIC','BFA','BAI','BCI','BNI','ATLANTICO'].map(b => <option key={b}>{b}</option>)}
+            {isCredito ? (
+              /* Cliente a crédito — duas opções separadas */
+              <div className="space-y-3 pt-2 border-t border-border">
+                {/* Opção 1: Adicionar à conta (débito — vai para a factura) */}
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-ink-muted">Adicionar consumo à conta (será facturado à empresa)</p>
+                  <div className="flex gap-2">
+                    <select className="input flex-1" value={newPaymentSource} onChange={e => setNewPaymentSource(e.target.value)}>
+                      <option value="stay">Hospedagem extra</option>
+                      <option value="laundry">Lavandaria</option>
+                      <option value="restaurant">Restaurante</option>
+                      <option value="bar">Bar</option>
+                      <option value="minibar">Frigobar</option>
+                    </select>
+                    <input type="number" min="0" className="input w-32" placeholder="Valor (Kz)"
+                      value={newPaymentAmount} onChange={e => setNewPaymentAmount(e.target.value)} />
+                    <button type="button" onClick={adicionarDebitoCredito}
+                      disabled={savingPayment || !newPaymentAmount}
+                      className="btn-secondary px-4 whitespace-nowrap">
+                      {savingPayment ? '...' : '+ Débito'}
+                    </button>
+                  </div>
+                  <p className="text-xs text-ink-light">Este valor será somado ao total a facturar à empresa.</p>
+                </div>
+
+                {/* Separador */}
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 border-t border-surface-border"/>
+                  <span className="text-xs text-ink-light">ou</span>
+                  <div className="flex-1 border-t border-surface-border"/>
+                </div>
+
+                {/* Opção 2: Pagamento directo (o hóspede pagou agora) */}
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-ink-muted">Registar pagamento directo (o hóspede pagou agora)</p>
+                  <div className="flex gap-2">
+                    <select className="input flex-1" value={newPaymentMethod} onChange={e => setNewPaymentMethod(e.target.value)}>
+                      <option value="numerario">Numerário</option>
+                      <option value="tpa">TPA</option>
+                      <option value="transferencia">Transferência</option>
+                    </select>
+                    {newPaymentMethod === 'tpa' && (
+                      <select className="input w-24" value={newPaymentBank} onChange={e => setNewPaymentBank(e.target.value)}>
+                        {['BIC','BFA','BAI','BCI','BNI','ATLANTICO'].map(b => <option key={b}>{b}</option>)}
+                      </select>
+                    )}
+                    <input type="number" min="0" className="input w-32" placeholder="Valor (Kz)"
+                      value={newPaymentAmount} onChange={e => setNewPaymentAmount(e.target.value)} />
+                    <button type="button" onClick={registarPagamento}
+                      disabled={savingPayment || !newPaymentAmount}
+                      className="btn-secondary px-4 whitespace-nowrap">
+                      {savingPayment ? '...' : 'Pago'}
+                    </button>
+                  </div>
+                  <p className="text-xs text-ink-light">Este valor desconta do total a crédito.</p>
+                </div>
+              </div>
+            ) : (
+              /* Cliente normal — só registar pagamento */
+              <div className="space-y-2 pt-2 border-t border-border">
+                <p className="text-xs text-ink-light">Registar pagamento adicional</p>
+                <div className="flex gap-2">
+                  <select className="input flex-1" value={newPaymentSource} onChange={e => setNewPaymentSource(e.target.value)}>
+                    <option value="stay">Hospedagem</option>
+                    <option value="laundry">Lavandaria</option>
+                    <option value="restaurant">Restaurante</option>
+                    <option value="bar">Bar</option>
+                    <option value="minibar">Frigobar</option>
                   </select>
-                )}
+                  <select className="input w-32" value={newPaymentMethod} onChange={e => setNewPaymentMethod(e.target.value)}>
+                    <option value="numerario">Numerário</option>
+                    <option value="tpa">TPA</option>
+                    <option value="transferencia">Transferência</option>
+                  </select>
+                  {newPaymentMethod === 'tpa' && (
+                    <select className="input w-24" value={newPaymentBank} onChange={e => setNewPaymentBank(e.target.value)}>
+                      {['BIC','BFA','BAI','BCI','BNI','ATLANTICO'].map(b => <option key={b}>{b}</option>)}
+                    </select>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <input type="number" min="0" className="input flex-1" placeholder="Valor (Kz)"
+                    value={newPaymentAmount} onChange={e => setNewPaymentAmount(e.target.value)} />
+                  <button type="button" onClick={registarPagamento}
+                    disabled={savingPayment || !newPaymentAmount} className="btn-secondary px-4">
+                    {savingPayment ? '...' : 'Registar'}
+                  </button>
+                </div>
               </div>
-              <div className="flex gap-2">
-                <input type="number" min="0" className="input flex-1" placeholder="Valor (Kz)"
-                  value={newPaymentAmount} onChange={e => setNewPaymentAmount(e.target.value)} />
-                <button type="button" onClick={registarPagamento} disabled={savingPayment || !newPaymentAmount} className="btn-secondary px-4">
-                  {savingPayment ? '...' : 'Registar'}
-                </button>
-              </div>
-            </div>
+            )}
           </div>
 
           {/* Saldo — para clientes a crédito mostra de forma diferente */}
           {isCredito ? (
-            <div className="card border-brand-200 bg-brand-50">
+            <div className="card border-brand-200 bg-brand-50 space-y-2">
               <div className="flex justify-between items-center">
                 <span className="font-semibold text-ink">Valor a facturar à empresa</span>
                 <span className="text-xl font-bold text-brand-500">
-                  {(subtotal - totalPaid).toLocaleString('pt-AO')} Kz
+                  {Math.max(0, subtotal - totalPaid).toLocaleString('pt-AO')} Kz
                 </span>
               </div>
+              {debitosCredito.length > 0 && (
+                <div className="text-xs space-y-1 pt-1 border-t border-brand-200">
+                  <p className="text-ink-muted font-medium">Consumos adicionados à conta:</p>
+                  {debitosCredito.map((d, i) => (
+                    <div key={i} className="flex justify-between pl-2 text-ink-muted">
+                      <span>{sourceLabel(d.source)}</span>
+                      <span>{d.amount.toLocaleString('pt-AO')} Kz</span>
+                    </div>
+                  ))}
+                </div>
+              )}
               {totalPaid > 0 && (
-                <p className="text-xs text-ink-muted mt-1">
-                  ({totalPaid.toLocaleString('pt-AO')} Kz já pago · restam {(subtotal - totalPaid).toLocaleString('pt-AO')} Kz a crédito)
+                <p className="text-xs text-ink-muted border-t border-brand-200 pt-1">
+                  {totalPaid.toLocaleString('pt-AO')} Kz já pago directamente ·
+                  restam {Math.max(0, subtotal - totalPaid).toLocaleString('pt-AO')} Kz a facturar
                 </p>
               )}
             </div>

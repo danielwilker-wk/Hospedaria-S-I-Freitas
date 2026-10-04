@@ -225,7 +225,9 @@ export default function CheckOutPage() {
   // ── Cálculos principais ──────────────────────────────────────
   const isCredito = stay.billed_to === 'empresa'
   const empresaName = stay.companies?.name || 'empresa'
-  const diarias = calcDiarias(stay.check_in_at, stay.check_out_planned_at)
+  // As diárias contam até ao dia em que o check-out é registado (hoje), e não até à data prevista:
+  // se o hóspede prolongou a estadia, a conta acompanha.
+  const diarias = calcDiarias(stay.check_in_at, null)
   const roomTotal = Number(stay.room_value) * diarias
 
   const lineSum = (empresa: boolean, cat?: Cat) =>

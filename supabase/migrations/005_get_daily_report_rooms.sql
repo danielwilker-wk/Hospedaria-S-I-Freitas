@@ -29,7 +29,7 @@ begin
       coalesce((select sum(v.valor) from ven v where v.quarto is not distinct from qs.quarto and v.sit = 'credito_empresa'), 0)
         + coalesce((select sum(l.valor) from lav l where l.quarto is not distinct from qs.quarto and l.cred), 0)
         + coalesce((select sum(f.valor) from frig f where f.quarto is not distinct from qs.quarto and f.cred), 0)
-        + case when (select max(o.empresa) from occ o where o.quarto = qs.quarto) is not null then coalesce((select sum(o.diaria) from occ o where o.quarto = qs.quarto), 0) else 0 end as credito,
+        + case when (select max(o.empresa) from occ o where o.quarto = qs.quarto) is not null then coalesce((select sum(o.diaria) from occ o where o.quarto = qs.quarto), 0) + coalesce((select sum(t.valor) from oth t where t.quarto is not distinct from qs.quarto), 0) else 0 end as credito,
       coalesce((select sum(p.valor) from pag p where p.quarto is not distinct from qs.quarto), 0) as recebido_quarto,
       coalesce((select sum(v.valor) from ven v where v.quarto is not distinct from qs.quarto and v.metodo is not null), 0) as recebido_vendas
     from qs),

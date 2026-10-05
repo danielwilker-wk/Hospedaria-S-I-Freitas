@@ -11,7 +11,7 @@ import {
   PROPERTY_ID, RelatorioSistema, RelatorioManual, Verificacao, Venda, ConciliacaoQuartos,
   kz, kzCent, dataExtenso, dataCurta, somarDias, ultimaDiariaFechada, rotuloMetodo,
   somaMetodo, juntarItens, vendasPagasPor, textoWhatsApp, lerTextoWhatsApp,
-  lerValor, manualVazio, normalizarManual, compararRelatorios, diferenca,
+  lerValor, manualVazio, normalizarManual, compararRelatorios, diferenca, explicacoes,
 } from '@/lib/relatorio'
 import { baixarPdfDiario } from '@/lib/relatorioPdf'
 
@@ -39,6 +39,11 @@ function Linha({ rotulo, valor, forte }: { rotulo: string; valor: string; forte?
       <span className="text-right">{valor}</span>
     </div>
   )
+}
+
+function Nota({ texto }: { texto: string }) {
+  if (!texto) return null
+  return <p className="text-xs text-ink-muted leading-relaxed pb-2">{texto}</p>
 }
 
 function NumInput({ value, onChange, placeholder, disabled }: {
@@ -113,6 +118,7 @@ export default function RelatorioPage() {
     Math.abs(quartosLedger.totais.devido - sistema.resumo.total_do_dia) < 0.5 &&
     Math.abs(quartosLedger.totais.recebido - sistema.totais.total_recebido) < 0.5
       ? quartosLedger : null
+  const expl = sistema ? explicacoes(sistema, conciliacao) : null
   const emCurso = !!sistema && new Date() < new Date(sistema.fim)
 
   const carregar = useCallback(async (dia: string) => {
@@ -363,6 +369,7 @@ export default function RelatorioPage() {
           <span className="font-bold">Total do Dia</span>
           <span className="font-bold text-brand-500 text-lg">{kz(sistema.resumo.total_do_dia)}</span>
         </div>
+        <Nota texto={expl?.totalDia ?? ''} />
       </Secao>
 
       <Secao titulo="Ocupação">
@@ -391,11 +398,14 @@ export default function RelatorioPage() {
             </div>
           ))}
           <Linha forte rotulo="Total em banco" valor={kz(sistema.totais.total_banco)} />
+          <Nota texto={expl?.totalBanco ?? ''} />
           <Linha rotulo="Numerário — quartos" valor={kz(somaMetodo(sistema.pagamentos_estadias_por_metodo, 'numerario'))} />
           <Linha rotulo="Numerário — vendas" valor={kz(somaMetodo(sistema.vendas_pagas_por_metodo, 'numerario'))} />
           <Linha forte rotulo="Total em numerário" valor={kz(sistema.totais.total_numerario)} />
+          <Nota texto={expl?.totalNumerario ?? ''} />
           <Linha forte rotulo="Transferências bancárias" valor={kz(sistema.totais.total_transferencia)} />
           <Linha forte rotulo="Total recebido" valor={kz(sistema.totais.total_recebido)} />
+          <Nota texto={expl?.totalRecebido ?? ''} />
         </div>
       </Secao>
 
@@ -420,10 +430,8 @@ export default function RelatorioPage() {
             <Linha rotulo="− Total recebido" valor={kz(sistema.totais.total_recebido)} />
             <Linha forte rotulo="= Saldo dos quartos (soma da tabela abaixo)" valor={kz(conciliacao.totais.saldo)} />
           </div>
-          <p className="text-xs text-ink-muted">
-            Saldo positivo: o quarto deve (consumo por pagar) ou pagou a sua diária noutro dia.
-            Saldo negativo: o quarto pagou adiantado ou pagou dívidas de outros dias.
-          </p>
+          <Nota texto={expl?.saldo ?? ''} />
+          <Nota texto={expl?.saldoLeitura ?? ''} />
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>

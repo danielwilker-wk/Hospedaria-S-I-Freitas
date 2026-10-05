@@ -1,7 +1,7 @@
 import jsPDF from 'jspdf'
 import {
   RelatorioSistema, kz, kzCent, rotuloMetodo, dataExtenso, juntarItens,
-  vendasPagasPor, somaMetodo, ConciliacaoQuartos,
+  vendasPagasPor, somaMetodo, ConciliacaoQuartos, explicacoes,
 } from './relatorio'
 
 const LARANJA: [number, number, number] = [234, 88, 12]
@@ -77,6 +77,18 @@ export function baixarPdfDiario(r: RelatorioSistema, iva: number | null, concili
     y += partes.length * 4.6 + 1.2
   }
 
+  // Texto explicativo pequeno, por baixo de um total
+  const nota = (texto: string) => {
+    if (!texto) return
+    doc.setFont('helvetica', 'italic')
+    doc.setFontSize(7.5)
+    doc.setTextColor(...CINZA)
+    const partes: string[] = doc.splitTextToSize(texto, largura - mx * 2)
+    garantir(partes.length * 3.8 + 2)
+    partes.forEach(p => { doc.text(p, mx, y); y += 3.8 })
+    y += 2
+  }
+
   const divisor = () => {
     y += 1
     garantir(6)
@@ -97,6 +109,7 @@ export function baixarPdfDiario(r: RelatorioSistema, iva: number | null, concili
   // ---------------------------------------------------------------- Página 1
   cabecalho()
   const s = r.resumo
+  const expl = explicacoes(r, conciliacao)
 
   titulo('Receção')
   linha('Check-ins', String(s.checkins))
@@ -130,7 +143,9 @@ export function baixarPdfDiario(r: RelatorioSistema, iva: number | null, concili
   doc.setTextColor(...LARANJA)
   doc.setFontSize(12)
   doc.text(kz(s.total_do_dia), largura - mx - 4, y + 9, { align: 'right' })
-  y += 22
+  y += 2
+  nota(expl.totalDia)
+  y += 6
 
   // ---------------------------------------------------------------- Ocupação
   titulo('Ocupação')
@@ -140,7 +155,7 @@ export function baixarPdfDiario(r: RelatorioSistema, iva: number | null, concili
   divisor()
 
   // ---------------------------------------------------------------- Recebimentos
-  garantir(95) // mantém a secção inteira na mesma página
+  garantir(130) // mantém a secção inteira na mesma página
   titulo('Recebimentos')
   const t = r.totais
   const bancos = Array.from(new Set(t.por_metodo_banco.filter(x => x.metodo === 'tpa').map(x => (x.banco ?? 'SEM BANCO').toUpperCase())))
@@ -150,11 +165,14 @@ export function baixarPdfDiario(r: RelatorioSistema, iva: number | null, concili
     linha(`Total TPA ${b}`, kz(somaMetodo(t.por_metodo_banco, 'tpa', b)), true)
   })
   linha('Total em banco', kz(t.total_banco), true)
+  nota(expl.totalBanco)
   linha('Numerário — quartos', kz(somaMetodo(r.pagamentos_estadias_por_metodo, 'numerario')))
   linha('Numerário — vendas', kz(somaMetodo(r.vendas_pagas_por_metodo, 'numerario')))
   linha('Total em numerário', kz(t.total_numerario), true)
+  nota(expl.totalNumerario)
   if (t.total_transferencia > 0) linha('Transferências bancárias', kz(t.total_transferencia), true)
   linha('Total recebido', kz(t.total_recebido), true)
+  nota(expl.totalRecebido)
   if (iva !== null && iva !== undefined) linha('Valor do IVA (faturas VD)', kzCent(iva), true)
   divisor()
 
@@ -166,15 +184,8 @@ export function baixarPdfDiario(r: RelatorioSistema, iva: number | null, concili
     linha('− Crédito de empresas (a faturar)', kz(conciliacao.totais.credito))
     linha('− Total recebido', kz(t.total_recebido))
     linha('= Saldo dos quartos (soma da tabela)', kz(conciliacao.totais.saldo), true)
-    y += 1
-    doc.setFont('helvetica', 'italic')
-    doc.setFontSize(7.5)
-    doc.setTextColor(...CINZA)
-    const nota: string[] = doc.splitTextToSize(
-      'Saldo positivo: o quarto deve (consumo por pagar) ou pagou a sua diária noutro dia. Saldo negativo: pagou adiantado ou pagou dívidas de outros dias.',
-      largura - mx * 2)
-    nota.forEach(n => { doc.text(n, mx, y); y += 4 })
-    y += 2
+    nota(expl.saldo)
+    nota(expl.saldoLeitura)
 
     const cols = { q: mx, h: mx + 10, dev: largura - mx - 78, cred: largura - mx - 52, rec: largura - mx - 26, sal: largura - mx }
     const cab = () => {

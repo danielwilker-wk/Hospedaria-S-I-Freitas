@@ -544,3 +544,54 @@ export function compararRelatorios(r: RelatorioSistema, man: RelatorioManual, iv
     { rotulo: 'IVA', manual: man.iva, sistema: ivaSistema, moeda: true },
   ]
 }
+
+
+// ---------------------------------------------------------------------
+// Explicações em linguagem simples (ecrã e PDF usam os mesmos textos)
+// ---------------------------------------------------------------------
+const juntarParcelas = (partes: [string, number][]): string => {
+  const usadas = partes.filter(([, v]) => Math.abs(v) > 0.001)
+  if (usadas.length === 0) return ''
+  return usadas.map(([n, v]) => `${n} ${kz(v)}`).join(' + ')
+}
+
+export function explicacoes(r: RelatorioSistema, c?: ConciliacaoQuartos | null) {
+  const s = r.resumo
+  const t = r.totais
+  const bancos = Array.from(new Set(t.por_metodo_banco.filter(x => x.metodo === 'tpa').map(x => (x.banco ?? 'SEM BANCO').toUpperCase())))
+
+  const totalDia =
+    `É o que foi faturado nesta diária, pago ou não (inclui o que ficou a crédito de empresas e o que ainda não foi pago). ` +
+    `Soma: ${juntarParcelas([
+      ['Hospedagem', s.hospedagem],
+      ['Restaurante', s.restaurante_hospedes + s.restaurante_nao_hospedes],
+      ['Bar', s.bar_hospedes + s.bar_nao_hospedes],
+      ['Lavandaria', s.lavandaria],
+      ['Frigobar', s.frigobar],
+      ['Outros lançamentos', s.outros_lancamentos],
+    ])} = ${kz(s.total_do_dia)}.`
+
+  const totalBanco =
+    `Só dinheiro recebido por TPA. Soma: ${bancos.map(b => `TPA ${b} ${kz(somaMetodo(t.por_metodo_banco, 'tpa', b))}`).join(' + ') || kz(0)} = ${kz(t.total_banco)}.`
+
+  const totalNumerario =
+    `Dinheiro em mão. Soma: quartos ${kz(somaMetodo(r.pagamentos_estadias_por_metodo, 'numerario'))} + vendas ${kz(somaMetodo(r.vendas_pagas_por_metodo, 'numerario'))} = ${kz(t.total_numerario)}.`
+
+  const totalRecebido =
+    `É o dinheiro que entrou nesta diária, pela hora do pagamento (inclui pagamentos adiantados ou de dias anteriores). ` +
+    `Soma: Banco ${kz(t.total_banco)} + Numerário ${kz(t.total_numerario)} + Transferências ${kz(t.total_transferencia)} = ${kz(t.total_recebido)}.`
+
+  let saldo = ''
+  let saldoLeitura = ''
+  if (c) {
+    const pos = c.quartos.filter(q => q.saldo > 0.5)
+    const neg = c.quartos.filter(q => q.saldo < -0.5)
+    saldo = `Total do Dia ${kz(s.total_do_dia)} − Crédito de empresas ${kz(c.totais.credito)} − Total recebido ${kz(t.total_recebido)} = ${kz(c.totais.saldo)}. A tabela abaixo faz a mesma conta quarto a quarto (Devido − Crédito − Recebido = Saldo).`
+    const lista = (l: LinhaQuarto[]) => l.map(q => `Q${q.quarto} (${kz(q.saldo)})`).join(', ')
+    saldoLeitura =
+      (pos.length ? `Saldo positivo (+): o quarto pagou menos nesta diária do que devia, porque já tinha pago antes ou ainda deve: ${lista(pos)}. ` : '') +
+      (neg.length ? `Saldo negativo (−): o quarto pagou mais do que devia nesta diária, porque pagou adiantado ou uma dívida antiga: ${lista(neg)}. ` : '') +
+      `Estes saldos não são erros, são diferenças de datas: ao longo da estadia de cada hóspede anulam-se. Um saldo que não se anula (hóspede que já saiu) é aviso de lançamento por rever.`
+  }
+  return { totalDia, totalBanco, totalNumerario, totalRecebido, saldo, saldoLeitura }
+}

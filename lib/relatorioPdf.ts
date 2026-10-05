@@ -1,7 +1,7 @@
 import jsPDF from 'jspdf'
 import {
   RelatorioSistema, kz, kzCent, rotuloMetodo, dataExtenso, juntarItens,
-  vendasPagasPor, somaMetodo,
+  vendasPagasPor, somaMetodo, ConciliacaoQuartos,
 } from './relatorio'
 
 const LARANJA: [number, number, number] = [234, 88, 12]
@@ -11,7 +11,7 @@ const ESCURO: [number, number, number] = [31, 41, 55]
 
 // PDF do relatório diário. Primeira página: mesmo layout do relatório antigo
 // (Receção / Sala de Refeições / Outros / Total do Dia). Depois: o detalhe.
-export function baixarPdfDiario(r: RelatorioSistema, iva: number | null) {
+export function baixarPdfDiario(r: RelatorioSistema, iva: number | null, conciliacao?: ConciliacaoQuartos | null) {
   const doc = new jsPDF()
   const largura = doc.internal.pageSize.getWidth()
   const altura = doc.internal.pageSize.getHeight()
@@ -157,6 +157,55 @@ export function baixarPdfDiario(r: RelatorioSistema, iva: number | null) {
   linha('Total recebido', kz(t.total_recebido), true)
   if (iva !== null && iva !== undefined) linha('Valor do IVA (faturas VD)', kzCent(iva), true)
   divisor()
+
+  // ---------------------------------------------------------------- Conciliação
+  if (conciliacao) {
+    garantir(60)
+    titulo('Conciliação: Total do Dia vs Total recebido')
+    linha('Total do Dia (faturado)', kz(s.total_do_dia))
+    linha('− Crédito de empresas (a faturar)', kz(conciliacao.totais.credito))
+    linha('− Total recebido', kz(t.total_recebido))
+    linha('= Saldo dos quartos (soma da tabela)', kz(conciliacao.totais.saldo), true)
+    y += 1
+    doc.setFont('helvetica', 'italic')
+    doc.setFontSize(7.5)
+    doc.setTextColor(...CINZA)
+    const nota: string[] = doc.splitTextToSize(
+      'Saldo positivo: o quarto deve (consumo por pagar) ou pagou a sua diária noutro dia. Saldo negativo: pagou adiantado ou pagou dívidas de outros dias.',
+      largura - mx * 2)
+    nota.forEach(n => { doc.text(n, mx, y); y += 4 })
+    y += 2
+
+    const cols = { q: mx, h: mx + 10, dev: largura - mx - 78, cred: largura - mx - 52, rec: largura - mx - 26, sal: largura - mx }
+    const cab = () => {
+      garantir(10)
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(...ESCURO)
+      doc.text('Q.', cols.q, y); doc.text('Hóspede', cols.h, y)
+      doc.text('Devido', cols.dev, y, { align: 'right' }); doc.text('Crédito', cols.cred, y, { align: 'right' })
+      doc.text('Recebido', cols.rec, y, { align: 'right' }); doc.text('Saldo', cols.sal, y, { align: 'right' })
+      y += 2; doc.setDrawColor(200, 200, 200); doc.line(mx, y, largura - mx, y); y += 4.5
+    }
+    const num = (n: number) => Math.round(n).toLocaleString('pt-AO')
+    const linhaTab = (q: string, h: string, dev: number, cred: number, rec: number, sal: number, negrito = false) => {
+      if (y + 6 > altura - 18) { doc.addPage(); y = 20; cab() }
+      doc.setFont('helvetica', negrito ? 'bold' : 'normal'); doc.setFontSize(8); doc.setTextColor(...ESCURO)
+      doc.text(q, cols.q, y)
+      const nome = h.length > 28 ? h.slice(0, 27) + '…' : h
+      doc.text(nome, cols.h, y)
+      doc.text(num(dev), cols.dev, y, { align: 'right' })
+      doc.text(cred ? num(cred) : '-', cols.cred, y, { align: 'right' })
+      doc.text(num(rec), cols.rec, y, { align: 'right' })
+      doc.text(sal === 0 ? '-' : num(sal), cols.sal, y, { align: 'right' })
+      y += 5
+    }
+    cab()
+    conciliacao.quartos.forEach(q => linhaTab(q.quarto, `${(q.hospede ?? '').trim()}${q.empresa ? ' (' + q.empresa + ')' : ''}`, q.devido, q.credito, q.recebido, q.saldo))
+    const sq = conciliacao.sem_quarto
+    if (sq.devido > 0 || sq.recebido > 0) linhaTab('-', 'Clientes não hóspedes', sq.devido, sq.credito, sq.recebido, sq.saldo)
+    linhaTab('', 'Total', conciliacao.totais.devido, conciliacao.totais.credito, conciliacao.totais.recebido, conciliacao.totais.saldo, true)
+    y += 3
+    divisor()
+  }
 
   // ---------------------------------------------------------------- Pagamentos de quartos
   if (r.pagamentos_estadias.length > 0) {

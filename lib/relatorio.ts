@@ -121,6 +121,31 @@ export interface RelatorioSistema {
   iva_total: number | null
 }
 
+export interface LinhaQuarto {
+  quarto: string
+  hospede: string | null
+  empresa: string | null
+  diaria: number
+  consumos: number
+  lavandaria: number
+  frigobar: number
+  outros: number
+  devido: number
+  credito: number
+  recebido_quarto: number
+  recebido_vendas: number
+  recebido: number
+  saldo: number
+}
+
+// Conciliação por quarto: o que cada quarto deve na diária vs o que pagou nela.
+export interface ConciliacaoQuartos {
+  quartos: LinhaQuarto[]
+  sem_quarto: { devido: number; credito: number; recebido: number; saldo: number }
+  totais: { devido: number; credito: number; recebido: number; saldo: number }
+  verificacao: { diferenca_faturado: number; diferenca_recebido: number }
+}
+
 export interface VerificacaoItem {
   nivel: 'erro' | 'aviso'
   codigo: string

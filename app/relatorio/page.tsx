@@ -8,7 +8,7 @@ import {
   AlertTriangle, AlertCircle, Copy, Save, Plus, Trash2,
 } from 'lucide-react'
 import {
-  PROPERTY_ID, RelatorioSistema, RelatorioManual, Verificacao, Venda,
+  PROPERTY_ID, RelatorioSistema, RelatorioManual, Verificacao, Venda, ConciliacaoQuartos,
   kz, kzCent, dataExtenso, dataCurta, somarDias, ultimaDiariaFechada, rotuloMetodo,
   somaMetodo, juntarItens, vendasPagasPor, textoWhatsApp, lerTextoWhatsApp,
   lerValor, manualVazio, normalizarManual, compararRelatorios, diferenca,
@@ -95,6 +95,7 @@ export default function RelatorioPage() {
 
   const [vivo, setVivo] = useState<RelatorioSistema | null>(null)
   const [verif, setVerif] = useState<Verificacao | null>(null)
+  const [quartosLedger, setQuartosLedger] = useState<ConciliacaoQuartos | null>(null)
   const [resumo, setResumo] = useState<any>(null)
   const [manual, setManual] = useState<RelatorioManual>(manualVazio())
   const [textoColado, setTextoColado] = useState('')
@@ -106,6 +107,12 @@ export default function RelatorioPage() {
   const sistema: RelatorioSistema | null = congelado ? (resumo.detalhes as RelatorioSistema) : vivo
   const ivaGuardado: number | null = resumo?.iva_total !== null && resumo?.iva_total !== undefined ? Number(resumo.iva_total) : null
   const bloqueado = resumo?.status === 'enviado'
+  // A conciliação só se mostra se fechar com os totais do relatório apresentado
+  const conciliacao: ConciliacaoQuartos | null =
+    sistema && quartosLedger &&
+    Math.abs(quartosLedger.totais.devido - sistema.resumo.total_do_dia) < 0.5 &&
+    Math.abs(quartosLedger.totais.recebido - sistema.totais.total_recebido) < 0.5
+      ? quartosLedger : null
   const emCurso = !!sistema && new Date() < new Date(sistema.fim)
 
   const carregar = useCallback(async (dia: string) => {
@@ -115,15 +122,17 @@ export default function RelatorioPage() {
     if (!session) { router.push('/auth/login'); return }
     setStaffId(session.user.id)
 
-    const [rel, chk, sum, man] = await Promise.all([
+    const [rel, chk, sum, man, led] = await Promise.all([
       supabase.rpc('get_daily_report', { p_property_id: PROPERTY_ID, p_date: dia }),
       supabase.rpc('get_daily_report_checks', { p_property_id: PROPERTY_ID, p_date: dia }),
       supabase.from('daily_summaries').select('*').eq('property_id', PROPERTY_ID).eq('summary_date', dia).maybeSingle(),
       supabase.from('daily_manual_reports').select('*').eq('property_id', PROPERTY_ID).eq('summary_date', dia).maybeSingle(),
+      supabase.rpc('get_daily_report_rooms', { p_property_id: PROPERTY_ID, p_date: dia }),
     ])
     if (rel.error) setErro('Não foi possível calcular o relatório: ' + rel.error.message)
     setVivo((rel.data as RelatorioSistema) ?? null)
     setVerif((chk.data as Verificacao) ?? null)
+    setQuartosLedger((led.data as ConciliacaoQuartos) ?? null)
     setResumo(sum.data ?? null)
     setIvaTxt(sum.data?.iva_total !== null && sum.data?.iva_total !== undefined ? String(sum.data.iva_total) : '')
     setManual(normalizarManual(man.data?.dados))
@@ -403,6 +412,60 @@ export default function RelatorioPage() {
         </Secao>
       )}
 
+      {conciliacao && (
+        <Secao titulo="Conciliação: Total do Dia vs Total recebido">
+          <div>
+            <Linha rotulo="Total do Dia (o que foi faturado)" valor={kz(sistema.resumo.total_do_dia)} />
+            <Linha rotulo="− Crédito de empresas (a faturar)" valor={kz(conciliacao.totais.credito)} />
+            <Linha rotulo="− Total recebido" valor={kz(sistema.totais.total_recebido)} />
+            <Linha forte rotulo="= Saldo dos quartos (soma da tabela abaixo)" valor={kz(conciliacao.totais.saldo)} />
+          </div>
+          <p className="text-xs text-ink-muted">
+            Saldo positivo: o quarto deve (consumo por pagar) ou pagou a sua diária noutro dia.
+            Saldo negativo: o quarto pagou adiantado ou pagou dívidas de outros dias.
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-left text-ink-muted border-b border-surface-border">
+                  <th className="py-1 pr-2">Q.</th><th className="pr-2">Hóspede</th>
+                  <th className="pr-2 text-right">Devido</th><th className="pr-2 text-right">Crédito</th>
+                  <th className="pr-2 text-right">Recebido</th><th className="text-right">Saldo</th>
+                </tr>
+              </thead>
+              <tbody>
+                {conciliacao.quartos.map(q => (
+                  <tr key={q.quarto} className="border-b border-surface-border">
+                    <td className="py-1 pr-2">{q.quarto}</td>
+                    <td className="pr-2">{(q.hospede ?? '').trim()}{q.empresa ? ` (${q.empresa})` : ''}</td>
+                    <td className="pr-2 text-right whitespace-nowrap">{kz(q.devido)}</td>
+                    <td className="pr-2 text-right whitespace-nowrap">{q.credito ? kz(q.credito) : '—'}</td>
+                    <td className="pr-2 text-right whitespace-nowrap">{kz(q.recebido)}</td>
+                    <td className="text-right whitespace-nowrap font-medium">{q.saldo === 0 ? '—' : kz(q.saldo)}</td>
+                  </tr>
+                ))}
+                {(conciliacao.sem_quarto.devido > 0 || conciliacao.sem_quarto.recebido > 0) && (
+                  <tr className="border-b border-surface-border">
+                    <td className="py-1 pr-2">—</td><td className="pr-2">Clientes não hóspedes</td>
+                    <td className="pr-2 text-right whitespace-nowrap">{kz(conciliacao.sem_quarto.devido)}</td>
+                    <td className="pr-2 text-right">—</td>
+                    <td className="pr-2 text-right whitespace-nowrap">{kz(conciliacao.sem_quarto.recebido)}</td>
+                    <td className="text-right whitespace-nowrap">{conciliacao.sem_quarto.saldo === 0 ? '—' : kz(conciliacao.sem_quarto.saldo)}</td>
+                  </tr>
+                )}
+                <tr className="font-semibold">
+                  <td className="py-1 pr-2" colSpan={2}>Total</td>
+                  <td className="pr-2 text-right whitespace-nowrap">{kz(conciliacao.totais.devido)}</td>
+                  <td className="pr-2 text-right whitespace-nowrap">{kz(conciliacao.totais.credito)}</td>
+                  <td className="pr-2 text-right whitespace-nowrap">{kz(conciliacao.totais.recebido)}</td>
+                  <td className="text-right whitespace-nowrap">{kz(conciliacao.totais.saldo)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </Secao>
+      )}
+
       {sistema.vendas.length > 0 && (
         <Secao titulo="Vendas da sala de refeições (detalhe)">
           <div className="space-y-4">
@@ -469,7 +532,7 @@ export default function RelatorioPage() {
           className="btn-secondary w-full flex items-center justify-center gap-2 text-sm">
           <RefreshCw size={14} className={busy ? 'animate-spin' : ''} /> Actualizar dados
         </button>
-        <button onClick={() => baixarPdfDiario(sistema, ivaGuardado)}
+        <button onClick={() => baixarPdfDiario(sistema, ivaGuardado, conciliacao)}
           className="btn-secondary w-full flex items-center justify-center gap-2 text-sm">
           <Download size={14} /> Baixar PDF
         </button>

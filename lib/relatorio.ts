@@ -61,6 +61,7 @@ export interface QuartoOcupado {
   valor_diaria: number
   checkin_na_diaria: boolean
   checkout_na_diaria: boolean
+  meia_diaria?: boolean
 }
 
 export interface CreditoEmpresa {
@@ -595,3 +596,11 @@ export function explicacoes(r: RelatorioSistema, c?: ConciliacaoQuartos | null) 
   }
   return { totalDia, totalBanco, totalNumerario, totalRecebido, saldo, saldoLeitura }
 }
+
+// Meias diárias: hóspedes de uma diária anterior que saíram antes da meia-noite.
+// Pagam metade e não contam como quartos ocupados nem como hóspedes.
+export const GRUPO_MEIAS = 'Meias diárias'
+export const rotuloGrupo = (grupo: string, quartos: number, hospedes: number): string =>
+  grupo === GRUPO_MEIAS
+    ? `${grupo} (não contam como ocupados) — ${quartos} ${quartos === 1 ? 'quarto' : 'quartos'}`
+    : `${grupo} — ${quartos} ${quartos === 1 ? 'quarto' : 'quartos'}, ${hospedes} ${hospedes === 1 ? 'hóspede' : 'hóspedes'}`

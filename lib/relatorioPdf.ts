@@ -1,7 +1,7 @@
 import jsPDF from 'jspdf'
 import {
   RelatorioSistema, kz, kzCent, rotuloMetodo, dataExtenso, juntarItens,
-  vendasPagasPor, somaMetodo, ConciliacaoQuartos, explicacoes,
+  vendasPagasPor, somaMetodo, ConciliacaoQuartos, explicacoes, rotuloGrupo,
 } from './relatorio'
 
 const LARANJA: [number, number, number] = [234, 88, 12]
@@ -150,7 +150,7 @@ export function baixarPdfDiario(r: RelatorioSistema, iva: number | null, concili
   // ---------------------------------------------------------------- Ocupação
   titulo('Ocupação')
   r.ocupacao.grupos.forEach(g => {
-    linha(`${g.grupo} (${g.quartos} ${g.quartos === 1 ? 'quarto' : 'quartos'}, ${g.hospedes} ${g.hospedes === 1 ? 'hóspede' : 'hóspedes'})`, kz(g.valor_diaria))
+    linha(rotuloGrupo(g.grupo, g.quartos, g.hospedes), kz(g.valor_diaria))
   })
   divisor()
 

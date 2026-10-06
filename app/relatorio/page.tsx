@@ -11,7 +11,7 @@ import {
   PROPERTY_ID, RelatorioSistema, RelatorioManual, Verificacao, Venda, ConciliacaoQuartos,
   kz, kzCent, dataExtenso, dataCurta, somarDias, ultimaDiariaFechada, rotuloMetodo,
   somaMetodo, juntarItens, vendasPagasPor, textoWhatsApp, lerTextoWhatsApp,
-  lerValor, manualVazio, normalizarManual, compararRelatorios, diferenca, explicacoes,
+  lerValor, manualVazio, normalizarManual, compararRelatorios, diferenca, explicacoes, rotuloGrupo,
 } from '@/lib/relatorio'
 import { baixarPdfDiario } from '@/lib/relatorioPdf'
 
@@ -375,14 +375,14 @@ export default function RelatorioPage() {
       <Secao titulo="Ocupação">
         <div>
           {sistema.ocupacao.grupos.map((g, i) => (
-            <Linha key={i} rotulo={`${g.grupo} — ${g.quartos} ${g.quartos === 1 ? 'quarto' : 'quartos'}, ${g.hospedes} ${g.hospedes === 1 ? 'hóspede' : 'hóspedes'}`} valor={kz(g.valor_diaria)} />
+            <Linha key={i} rotulo={rotuloGrupo(g.grupo, g.quartos, g.hospedes)} valor={kz(g.valor_diaria)} />
           ))}
         </div>
         <div className="text-xs text-ink-muted grid grid-cols-2 gap-x-4 gap-y-1">
           {sistema.ocupacao.quartos.map(q => (
             <div key={q.quarto} className="flex justify-between">
               <span>Q{q.quarto} · {(q.hospede ?? '').trim()}{q.empresa ? ` (${q.empresa})` : ''}</span>
-              <span>{q.ocupacao === 'duplo' ? '2p' : '1p'}</span>
+              <span>{q.meia_diaria ? '½ diária' : q.ocupacao === 'duplo' ? '2p' : '1p'}</span>
             </div>
           ))}
         </div>

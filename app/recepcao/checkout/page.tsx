@@ -43,16 +43,32 @@ function methodLabel(method: string, bank?: string | null) {
 
 const kz = (n: number) => `${n.toLocaleString('pt-AO')} Kz`
 
-// Calcula o número de diárias entre check-in e check-out previsto
-// Lógica: cada diária começa às 12h e termina às 11h do dia seguinte
-// Se não houver check-out previsto, usa a data actual
-function calcDiarias(checkIn: string, checkOutPlanned?: string | null): number {
-  const inDate = new Date(checkIn)
-  const outDate = checkOutPlanned ? new Date(checkOutPlanned) : new Date()
-  const inDay = new Date(inDate.getFullYear(), inDate.getMonth(), inDate.getDate())
-  const outDay = new Date(outDate.getFullYear(), outDate.getMonth(), outDate.getDate())
-  const diff = Math.round((outDay.getTime() - inDay.getTime()) / (1000 * 60 * 60 * 24))
-  return Math.max(1, diff)
+// Diária = das 12h às 11h do dia seguinte. O dia da diária de um instante t é o dia de (t - 12h).
+// - Saída até às 11h (ou até às 12h, tolerância) -> diária completa já paga, nada a acrescentar.
+// - Saída entre as 12h e a meia-noite do dia de uma nova diária -> meia diária.
+// - Saída depois da meia-noite dentro dessa diária -> diária completa.
+function calcDiarias(checkIn: string, checkOut: Date): { total: number; meia: boolean } {
+  const DIA = 24 * 60 * 60 * 1000
+  const diaDaDiaria = (t: Date) => {
+    const d = new Date(t.getTime() - 12 * 60 * 60 * 1000)
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate())
+  }
+  const dIn = diaDaDiaria(new Date(checkIn))
+  const dOut = diaDaDiaria(checkOut)
+  const dias = Math.round((dOut.getTime() - dIn.getTime()) / DIA)
+  if (dias <= 0) return { total: 1, meia: false }
+  const decorridoH = (checkOut.getTime() - (dOut.getTime() + 12 * 60 * 60 * 1000)) / (60 * 60 * 1000)
+  if (decorridoH < 12) return { total: dias + 0.5, meia: true }
+  return { total: dias + 1, meia: false }
+}
+
+function diariasLabel(total: number): string {
+  const inteiras = Math.floor(total)
+  const meia = total - inteiras > 0
+  if (!meia) return `${inteiras} ${inteiras === 1 ? 'diária' : 'diárias'}`
+  return inteiras > 0
+    ? `${inteiras} ${inteiras === 1 ? 'diária' : 'diárias'} + meia diária`
+    : 'meia diária'
 }
 
 type ActiveStay = {
@@ -94,6 +110,8 @@ export default function CheckOutPage() {
 
   const [staffId, setStaffId] = useState('')
   const [finalizing, setFinalizing] = useState(false)
+  // Hora real de saída (opcional). Vazio = agora. Permite regularizar saídas que ficaram por registar.
+  const [saidaManual, setSaidaManual] = useState('')
   const [done, setDone] = useState(false)
 
   // Frigobar
@@ -227,7 +245,8 @@ export default function CheckOutPage() {
   const empresaName = stay.companies?.name || 'empresa'
   // As diárias contam até ao dia em que o check-out é registado (hoje), e não até à data prevista:
   // se o hóspede prolongou a estadia, a conta acompanha.
-  const diarias = calcDiarias(stay.check_in_at, null)
+  const checkoutAt = saidaManual ? new Date(saidaManual) : new Date()
+  const { total: diarias, meia: temMeiaDiaria } = calcDiarias(stay.check_in_at, checkoutAt)
   const roomTotal = Number(stay.room_value) * diarias
 
   const lineSum = (empresa: boolean, cat?: Cat) =>
@@ -404,11 +423,11 @@ export default function CheckOutPage() {
     row('Documento', stay.guests?.document_number ?? '—')
     row('Quarto', `${stay.rooms?.number} — ${stay.rooms?.room_types?.name}`)
     row('Check-in', new Date(stay.check_in_at).toLocaleDateString('pt-AO'))
-    row('Check-out', now.toLocaleDateString('pt-AO'))
+    row('Check-out', checkoutAt.toLocaleString('pt-AO', { dateStyle: 'short', timeStyle: 'short' }))
     if (isCredito) row('Facturação', `A crédito — ${empresaName}`)
     divider()
 
-    const roomLabel = `Hospedagem (${diarias} ${diarias === 1 ? 'diária' : 'diárias'} × ${kz(Number(stay.room_value))})`
+    const roomLabel = `Hospedagem (${diariasLabel(diarias)} × ${kz(Number(stay.room_value))})`
 
     // Conta da empresa
     if (mostrarContaEmpresa) {
@@ -485,7 +504,7 @@ export default function CheckOutPage() {
     setFinalizing(true)
     const supabase = createClient()
     const { error } = await supabase.from('stays').update({
-      check_out_at: new Date().toISOString(),
+      check_out_at: checkoutAt.toISOString(),
       status: 'finalizado',
       checked_out_verified_by: staffId,
       // valor ainda em aberto: o que o hóspede deve + o que fica por facturar à empresa
@@ -566,6 +585,16 @@ export default function CheckOutPage() {
         </p>
       </div>
 
+      <div className="card space-y-2">
+        <label className="text-xs font-bold text-ink-muted uppercase tracking-wide">Hora de saída do hóspede</label>
+        <input type="datetime-local" className="input" value={saidaManual} max={new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)}
+          onChange={e => setSaidaManual(e.target.value)} />
+        <p className="text-xs text-ink-muted">
+          Deixe em branco se o hóspede está a sair agora. Se já saiu e o check-out ficou por fazer, indique a hora real de saída.
+          {temMeiaDiaria && <span className="font-semibold text-brand-700"> Saída depois das 12h do dia de uma nova diária: cobra-se meia diária.</span>}
+        </p>
+      </div>
+
       {isCredito && (
         <div className="card border-brand-200 bg-brand-50 flex items-start gap-3 text-sm text-brand-700">
           <Building2 size={16} className="mt-0.5 shrink-0"/>
@@ -593,7 +622,7 @@ export default function CheckOutPage() {
                 {isCredito && (
                   <div className="flex justify-between">
                     <span className="text-ink-muted">
-                      Hospedagem ({diarias} {diarias === 1 ? 'diária' : 'diárias'} × {kz(Number(stay.room_value))})
+                      Hospedagem ({diariasLabel(diarias)} × {kz(Number(stay.room_value))})
                     </span>
                     <span className="font-medium">{kz(roomTotal)}</span>
                   </div>
@@ -617,7 +646,7 @@ export default function CheckOutPage() {
               {!isCredito && (
                 <div className="flex justify-between">
                   <span className="text-ink-muted">
-                    Hospedagem ({diarias} {diarias === 1 ? 'diária' : 'diárias'} × {kz(Number(stay.room_value))})
+                    Hospedagem ({diariasLabel(diarias)} × {kz(Number(stay.room_value))})
                   </span>
                   <span className="font-medium">{kz(roomTotal)}</span>
                 </div>

@@ -57,6 +57,8 @@ function CheckInPageInner() {
     vehicle_color: '',
     check_out_planned_at: '',
     amount_paid_reservation: '0',
+    diarias_pagas: '0',        // ← NOVO: nº de diárias pagas agora
+    valor_manual: false,       // ← NOVO: true quando o valor é escrito à mão (em vez de nº de diárias × preço)
     payment_method: 'numerario',
     bank_name: '',
     billed_to: 'proprio',
@@ -147,13 +149,27 @@ function CheckInPageInner() {
         : selectedRoom.room_types?.duplo_price) ?? 0
     : 0
   const roomValue = form.discount_applied ? Math.round(baseRoomValue * 0.9) : baseRoomValue
-  const amountDue = roomValue - Number(form.amount_paid_reservation)
+  // Diárias pagas agora: o valor pago é nº de diárias × preço, a menos que o valor seja escrito à mão.
+  // O pagamento fica registado uma única vez, na hora do check-in, e por isso só conta no relatório do dia da chegada.
+  const diariasPagas = Math.max(0, Math.floor(Number(form.diarias_pagas) || 0))
+  const paidNow = form.valor_manual ? (Number(form.amount_paid_reservation) || 0) : roomValue * diariasPagas
+  const amountDue = roomValue * Math.max(1, diariasPagas) - paidNow
+
+  // Diária = das 12h às 11h do dia seguinte: a diária do dia de (entrada − 12h). N diárias pagas cobrem até às 11h do dia seguinte à última.
+  const coberturaAte = (() => {
+    if (diariasPagas < 1 || !form.check_in_at) return null
+    const d = new Date(new Date(form.check_in_at).getTime() - 12 * 60 * 60 * 1000)
+    const fim = new Date(d.getFullYear(), d.getMonth(), d.getDate() + diariasPagas, 11, 0)
+    return fim.toLocaleDateString('pt-AO', { day: '2-digit', month: '2-digit' }) + ' às 11h00'
+  })()
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) {
     const { name, value } = e.target
     setForm(prev => ({
       ...prev,
       [name]: value,
+      ...(name === 'diarias_pagas' ? { valor_manual: false } : {}),
+      ...(name === 'amount_paid_reservation' ? { valor_manual: true } : {}),
       ...(name === 'company_id'
         ? { discount_applied: companies.find(c => c.id === value)?.default_discount ?? false }
         : {}),
@@ -207,7 +223,8 @@ function CheckInPageInner() {
         check_out_planned_at: form.check_out_planned_at || null,
         room_value: roomValue,
         base_room_value: form.discount_applied ? baseRoomValue : null,
-        amount_paid_reservation: Number(form.amount_paid_reservation),
+        amount_paid_reservation: paidNow,
+        diarias_pagas: diariasPagas,
         amount_due: amountDue,
         checked_in_by: staffId,
         billed_to: form.billed_to,
@@ -219,12 +236,12 @@ function CheckInPageInner() {
 
     if (stayError) { alert('Erro ao criar estadia: ' + stayError.message); setSaving(false); return }
 
-    if (Number(form.amount_paid_reservation) > 0) {
+    if (paidNow > 0) {
       await supabase.from('payments').insert({
         property_id: PROPERTY_ID,
         source_type: 'stay',
         source_id: newStay.id,
-        amount: Number(form.amount_paid_reservation),
+        amount: paidNow,
         method: form.payment_method,
         bank_name: form.payment_method === 'tpa' ? form.bank_name : null,
         recorded_by: staffId,
@@ -358,23 +375,43 @@ function CheckInPageInner() {
                     {roomValue.toLocaleString('pt-AO')} Kz
                   </p>
                 </div>
-                <div><p className="text-ink-light text-xs">Pago na reserva</p><p className="font-semibold">{Number(form.amount_paid_reservation).toLocaleString('pt-AO')} Kz</p></div>
+                <div><p className="text-ink-light text-xs">Pago agora{diariasPagas > 0 ? ` (${diariasPagas} ${diariasPagas === 1 ? 'diária' : 'diárias'})` : ''}</p><p className="font-semibold">{paidNow.toLocaleString('pt-AO')} Kz</p></div>
                 <div><p className="text-ink-light text-xs">Valor a pagar</p><p className="font-bold text-brand-500">{amountDue.toLocaleString('pt-AO')} Kz</p></div>
               </div>
             )}
 
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="label">Check-out previsto</label>
-                <input type="datetime-local" name="check_out_planned_at" className="input" value={form.check_out_planned_at} onChange={handleChange}/>
-              </div>
-              <div>
-                <label className="label">Pago na reserva (Kz)</label>
-                <input type="number" name="amount_paid_reservation" className="input" value={form.amount_paid_reservation} onChange={handleChange} min="0"/>
-              </div>
+            <div>
+              <label className="label">Check-out previsto</label>
+              <input type="datetime-local" name="check_out_planned_at" className="input" value={form.check_out_planned_at} onChange={handleChange}/>
             </div>
 
-            {Number(form.amount_paid_reservation) > 0 && (
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="label">Diárias pagas agora</label>
+                <input type="number" name="diarias_pagas" className="input" value={form.diarias_pagas} onChange={handleChange} min="0" step="1"/>
+                {coberturaAte && (
+                  <p className="text-xs text-ink-muted mt-1">Cobre até {coberturaAte}.</p>
+                )}
+              </div>
+              <div>
+                <label className="label">Valor pago agora (Kz)</label>
+                <input type="number" name="amount_paid_reservation" className="input"
+                  value={form.valor_manual ? form.amount_paid_reservation : String(paidNow)}
+                  onChange={handleChange} min="0"/>
+              </div>
+            </div>
+            {diariasPagas > 0 && (
+              <p className="text-xs text-ink-muted -mt-2">
+                Este pagamento fica registado uma só vez, agora, e conta apenas no relatório do dia da chegada. Nos dias seguintes o quarto aparece com a diária já paga.
+              </p>
+            )}
+            {form.valor_manual && diariasPagas > 0 && paidNow !== roomValue * diariasPagas && (
+              <p className="text-xs text-amber-600 -mt-2">
+                ⚠️ O valor escrito ({paidNow.toLocaleString('pt-AO')} Kz) é diferente de {diariasPagas} × {roomValue.toLocaleString('pt-AO')} Kz.
+              </p>
+            )}
+
+            {paidNow > 0 && (
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="label">Método de pagamento</label>
@@ -496,7 +533,7 @@ function CheckInPageInner() {
 
           <button
             type="submit"
-            disabled={saving || !form.room_id || !form.full_name || (form.billed_to === 'empresa' && !form.company_id) || (Number(form.amount_paid_reservation) > 0 && form.payment_method === 'tpa' && !form.bank_name)}
+            disabled={saving || !form.room_id || !form.full_name || (form.billed_to === 'empresa' && !form.company_id) || (paidNow > 0 && form.payment_method === 'tpa' && !form.bank_name)}
             className="btn-primary w-full py-3"
           >
             {saving ? 'A registar...' : 'Confirmar Check-in'}

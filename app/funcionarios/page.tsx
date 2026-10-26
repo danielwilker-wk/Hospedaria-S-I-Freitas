@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Users, Plus, Trash2, UtensilsCrossed, Sparkles } from 'lucide-react'
+import { Users, Plus, Trash2, UtensilsCrossed, Sparkles, Pencil, Check, X } from 'lucide-react'
 
 const PROPERTY_ID = '00000000-0000-0000-0000-000000000001'
 
@@ -20,6 +20,9 @@ export default function FuncionariosPage() {
   const [saving, setSaving] = useState(false)
   const [name, setName] = useState('')
   const [department, setDepartment] = useState<Department>('sala_refeicoes')
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editName, setEditName] = useState('')
+  const [savingEdit, setSavingEdit] = useState(false)
 
   async function load() {
     const supabase = createClient()
@@ -47,6 +50,32 @@ export default function FuncionariosPage() {
     if (error) { alert('Erro: ' + error.message); setSaving(false); return }
     setName('')
     setSaving(false)
+    load()
+  }
+
+  function startEdit(item: Attendant) {
+    setEditingId(item.id)
+    setEditName(item.full_name)
+  }
+
+  function cancelEdit() {
+    setEditingId(null)
+    setEditName('')
+  }
+
+  async function saveEdit(item: Attendant) {
+    const newName = editName.trim()
+    if (!newName) return
+    if (newName === item.full_name) { cancelEdit(); return }
+    setSavingEdit(true)
+    const supabase = createClient()
+    const { error } = await supabase
+      .from('attendants')
+      .update({ full_name: newName })
+      .eq('id', item.id)
+    setSavingEdit(false)
+    if (error) { alert('Erro ao guardar: ' + error.message); return }
+    cancelEdit()
     load()
   }
 
@@ -121,16 +150,50 @@ export default function FuncionariosPage() {
               <h2 className="text-xs font-bold text-ink-muted uppercase tracking-wide">{departmentLabel[dep]}</h2>
               <div className="divide-y divide-border">
                 {groupItems.map(item => (
-                  <div key={item.id} className="py-2.5 flex items-center justify-between">
-                    <p className={`font-medium ${item.active ? 'text-ink' : 'text-ink-light line-through'}`}>{item.full_name}</p>
-                    <div className="flex items-center gap-3">
-                      <button onClick={() => toggleActive(item)} className="text-xs font-medium text-brand-500">
-                        {item.active ? 'Desativar' : 'Ativar'}
-                      </button>
-                      <button onClick={() => remove(item)} className="text-ink-light hover:text-red-500">
-                        <Trash2 size={15} />
-                      </button>
-                    </div>
+                  <div key={item.id} className="py-2.5 flex items-center justify-between gap-3">
+                    {editingId === item.id ? (
+                      <>
+                        <input
+                          type="text"
+                          className="input flex-1"
+                          value={editName}
+                          autoFocus
+                          onChange={e => setEditName(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') saveEdit(item)
+                            if (e.key === 'Escape') cancelEdit()
+                          }}
+                        />
+                        <div className="flex items-center gap-3">
+                          <button
+                            onClick={() => saveEdit(item)}
+                            disabled={savingEdit || !editName.trim()}
+                            className="text-green-600 hover:text-green-700 disabled:opacity-40"
+                            title="Guardar"
+                          >
+                            <Check size={18} />
+                          </button>
+                          <button onClick={cancelEdit} className="text-ink-light hover:text-red-500" title="Cancelar">
+                            <X size={18} />
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <p className={`font-medium ${item.active ? 'text-ink' : 'text-ink-light line-through'}`}>{item.full_name}</p>
+                        <div className="flex items-center gap-3">
+                          <button onClick={() => startEdit(item)} className="text-ink-light hover:text-brand-500" title="Editar nome">
+                            <Pencil size={15} />
+                          </button>
+                          <button onClick={() => toggleActive(item)} className="text-xs font-medium text-brand-500">
+                            {item.active ? 'Desativar' : 'Ativar'}
+                          </button>
+                          <button onClick={() => remove(item)} className="text-ink-light hover:text-red-500" title="Remover">
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
+                      </>
+                    )}
                   </div>
                 ))}
               </div>

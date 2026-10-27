@@ -7,7 +7,7 @@ import {
   LayoutDashboard, BedDouble, ClipboardList, UserSearch, Search,
   LogIn, LogOut as LogOutIcon, UtensilsCrossed, Wine, Package,
   Sparkles, Wrench, FileText, Archive, BarChart3, Users,
-  Building2, ChevronDown, LogOut, CalendarDays, Trophy,
+  Building2, ChevronDown, LogOut, CalendarDays, Trophy, Pencil,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import clsx from 'clsx'
@@ -29,6 +29,7 @@ const nav: NavItem[] = [
       { href: '/recepcao/hospedes',        label: 'Pesquisar Hóspede', icon: Search },
       { href: '/recepcao/checkin',   label: 'Check-in',  icon: LogIn },
       { href: '/recepcao/checkout',  label: 'Check-out', icon: LogOutIcon },
+      { href: '/recepcao/corrigir-pagamentos', label: 'Corrigir Pagamentos', icon: Pencil },
     ],
   },
   {

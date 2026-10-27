@@ -147,15 +147,17 @@ export default function RestauranteVendaPage() {
     if (itemsError) { alert('Venda registada mas houve erro nos itens: ' + itemsError.message) }
 
     if (guestType === 'hospede' && paymentTiming === 'agora' && selectedStay) {
-      await supabase.from('payments').insert({
+      // recorded_by tem de ser o utilizador com sessão (staff), não o funcionário que assina a venda
+      const { error: payError } = await supabase.from('payments').insert({
         property_id: PROPERTY_ID,
         source_type: 'restaurant',
         source_id: selectedStay.id,
         amount: total,
         method: paymentMethod,
         bank_name: paymentMethod === 'tpa' ? paymentBank : null,
-        recorded_by: attendantId,
+        recorded_by: staffId,
       })
+      if (payError) alert('Venda registada, mas o pagamento não ficou gravado no check-out: ' + payError.message)
     }
 
     setSuccess(true)

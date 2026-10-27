@@ -172,15 +172,17 @@ export default function BarVendaPage() {
     // Se o hóspede pagou logo (em vez de debitar na conta), regista o pagamento
     // para não ser cobrado outra vez no check-out.
     if (guestType === 'hospede' && paymentTiming === 'agora' && selectedStay) {
-      await supabase.from('payments').insert({
+      // recorded_by tem de ser o utilizador com sessão (staff), não o funcionário que assina a venda
+      const { error: payError } = await supabase.from('payments').insert({
         property_id: PROPERTY_ID,
         source_type: 'bar',
         source_id: selectedStay.id,
         amount: total,
         method: paymentMethod,
         bank_name: paymentMethod === 'tpa' ? paymentBank : null,
-        recorded_by: attendantId,
+        recorded_by: staffId,
       })
+      if (payError) alert('Venda registada, mas o pagamento não ficou gravado no check-out: ' + payError.message)
     }
 
     setSuccess(true)

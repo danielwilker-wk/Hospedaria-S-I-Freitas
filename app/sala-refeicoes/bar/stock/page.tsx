@@ -32,21 +32,23 @@ export default function BarStockPage() {
   }
   const [history, setHistory] = useState<Hist[]>([])
   const [histProduct, setHistProduct] = useState('')
-  const [histDays, setHistDays] = useState(30)
+  const histDays = 365
   const [loadingHist, setLoadingHist] = useState(false)
+
+  const ultimos = (() => { const seen = new Set<string>(); return history.filter(h => (seen.has(h.product_id) ? false : (seen.add(h.product_id), true))) })()
 
   async function loadHistory() {
     setLoadingHist(true)
     const supabase = createClient()
     const desde = new Date(Date.now() - histDays * 24 * 3600 * 1000).toISOString()
-    let q = supabase.from('bar_stock_history').select('*').gte('changed_at', desde).order('changed_at', { ascending: false }).limit(300)
+    let q = supabase.from('bar_stock_history').select('*').gte('changed_at', desde).order('changed_at', { ascending: false }).limit(2000)
     if (histProduct) q = q.eq('product_id', histProduct)
     const { data } = await q
     setHistory((data as Hist[]) ?? [])
     setLoadingHist(false)
   }
 
-  useEffect(() => { loadHistory() }, [histProduct, histDays])
+  useEffect(() => { loadHistory() }, [histProduct])
 
   async function load() {
     const supabase = createClient()
@@ -247,47 +249,31 @@ export default function BarStockPage() {
 
       <div id="historico-stock" className="card space-y-3">
         <h2 className="text-xs font-bold text-ink-muted uppercase tracking-wide flex items-center gap-1.5">
-          <History size={13} /> Histórico de stock (antes → depois)
+          <History size={13} /> Última atualização de stock
         </h2>
-        <div className="grid grid-cols-2 gap-2">
-          <select className="input text-sm" value={histProduct} onChange={e => setHistProduct(e.target.value)}>
-            <option value="">Todos os produtos</option>
-            {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-          <select className="input text-sm" value={histDays} onChange={e => setHistDays(Number(e.target.value))}>
-            <option value={7}>Últimos 7 dias</option>
-            <option value={30}>Últimos 30 dias</option>
-            <option value={90}>Últimos 90 dias</option>
-            <option value={365}>Último ano</option>
-          </select>
-        </div>
+        <select className="input text-sm" value={histProduct} onChange={e => setHistProduct(e.target.value)}>
+          <option value="">Todos os produtos</option>
+          {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
         {loadingHist ? (
           <p className="text-sm text-ink-muted text-center py-4">A carregar...</p>
-        ) : history.length === 0 ? (
-          <p className="text-sm text-ink-muted text-center py-4">Sem alterações de stock neste período. O histórico começa a ser guardado a partir de agora.</p>
+        ) : ultimos.length === 0 ? (
+          <p className="text-sm text-ink-muted text-center py-4">Sem atualizações de stock registadas.</p>
         ) : (
           <div className="divide-y divide-border">
-            {history.map(h => {
+            {ultimos.map(h => {
               const prod = products.find(p => p.id === h.product_id)
-              const v = Number(h.variacao)
               return (
-                <div key={h.id} className="py-2.5 text-sm flex items-start justify-between gap-3">
+                <div key={h.id} className="py-2.5 flex items-center justify-between gap-3 text-sm">
                   <div className="min-w-0">
                     <p className="font-medium text-ink truncate">{prod?.name ?? 'Produto'}</p>
-                    <p className="text-xs text-ink-muted">
-                      {new Date(h.changed_at).toLocaleString('pt-AO', { timeZone: 'Africa/Luanda' })} · {h.origem}
-                      {h.motivo ? ` · ${h.motivo}` : ''}
-                    </p>
-                    <p className="text-xs text-ink-muted">
-                      {h.atendente_nome ? `${h.atendente_nome} · ` : ''}{h.staff_nome ? `login: ${h.staff_nome}` : 'sem utilizador (sistema)'}
-                    </p>
+                    <p className="text-xs text-ink-muted">{new Date(h.changed_at).toLocaleString('pt-AO', { timeZone: 'Africa/Luanda' })}</p>
                   </div>
-                  <div className="text-right shrink-0">
-                    <p className="font-semibold text-ink">
-                      {h.stock_antes === null ? '—' : Number(h.stock_antes)} → {Number(h.stock_depois)}
-                    </p>
-                    <p className={`text-xs font-medium ${v < 0 ? 'text-red-600' : 'text-green-600'}`}>{v > 0 ? '+' : ''}{v}</p>
-                  </div>
+                  <p className="shrink-0 text-ink">
+                    Antes <b>{h.stock_antes === null ? '—' : Number(h.stock_antes)}</b>
+                    {' · '}Depois <b>{Number(h.stock_depois)}</b>
+                    {' · '}Stock atual <b>{prod ? Number(prod.stock_quantity) : '—'}</b>
+                  </p>
                 </div>
               )
             })}

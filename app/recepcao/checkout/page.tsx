@@ -94,6 +94,11 @@ export default function CheckOutPage() {
 
   const [lines, setLines] = useState<Line[]>([])
   const [paymentsMade, setPaymentsMade] = useState(0)
+  const [companyPaid, setCompanyPaid] = useState(0)
+  const [empresaPagou, setEmpresaPagou] = useState(false)
+  const [empresaMethod, setEmpresaMethod] = useState('transferencia')
+  const [empresaBank, setEmpresaBank] = useState('BIC')
+  const [savingEmpresa, setSavingEmpresa] = useState(false)
   const [paymentsList, setPaymentsList] = useState<any[]>([])
   const [loadingBreakdown, setLoadingBreakdown] = useState(false)
 
@@ -169,23 +174,24 @@ export default function CheckOutPage() {
     const supabase = createClient()
     const [{ data: laundry }, { data: restaurant }, { data: bar }, { data: minibar }, { data: charges }, { data: payments }] = await Promise.all([
       supabase.from('laundry_records').select('value, company_id').eq('stay_id', s.id),
-      supabase.from('restaurant_sales').select('value, company_id').eq('stay_id', s.id).eq('guest_type', 'hospede'),
-      supabase.from('bar_sales').select('company_id, bar_sale_items(subtotal)').eq('stay_id', s.id).eq('guest_type', 'hospede'),
+      supabase.from('restaurant_sales').select('value, company_id, payment_method').eq('stay_id', s.id).eq('guest_type', 'hospede'),
+      supabase.from('bar_sales').select('company_id, payment_method, bar_sale_items(subtotal)').eq('stay_id', s.id).eq('guest_type', 'hospede'),
       supabase.from('minibar_consumptions').select('total, company_id').eq('stay_id', s.id),
-      supabase.from('stay_charges').select('id, charge_type, description, amount, company_id').eq('stay_id', s.id).order('created_at'),
-      supabase.from('payments').select('amount, method, bank_name, source_type, paid_at, id').eq('source_id', s.id).order('paid_at', { ascending: false }),
+      supabase.from('stay_charges').select('id, charge_type, description, amount, company_id, paid_now').eq('stay_id', s.id).order('created_at'),
+      supabase.from('payments').select('amount, method, bank_name, source_type, paid_at, id, paid_by_company').eq('source_id', s.id).order('paid_at', { ascending: false }),
     ])
 
     const built: Line[] = []
     ;(laundry ?? []).forEach((r: any) => built.push({ cat: 'lavandaria', amount: Number(r.value), empresa: !!r.company_id }))
-    ;(restaurant ?? []).forEach((r: any) => built.push({ cat: 'restaurante', amount: Number(r.value), empresa: !!r.company_id }))
-    ;(bar ?? []).forEach((b: any) => built.push({
+    ;// Vendas já pagas na hora ("pago agora") não voltam a ser cobradas no check-out
+    ;(restaurant ?? []).filter((r: any) => !r.payment_method).forEach((r: any) => built.push({ cat: 'restaurante', amount: Number(r.value), empresa: !!r.company_id }))
+    ;(bar ?? []).filter((b: any) => !b.payment_method).forEach((b: any) => built.push({
       cat: 'bar',
       amount: (b.bar_sale_items ?? []).reduce((sum: number, it: any) => sum + Number(it.subtotal), 0),
       empresa: !!b.company_id,
     }))
     ;(minibar ?? []).forEach((m: any) => built.push({ cat: 'frigobar', amount: Number(m.total), empresa: !!m.company_id }))
-    ;(charges ?? []).forEach((c: any) => built.push({
+    ;(charges ?? []).filter((c: any) => !c.paid_now).forEach((c: any) => built.push({
       cat: (CAT_ORDER.includes(c.charge_type) ? c.charge_type : 'outro') as Cat,
       amount: Number(c.amount),
       empresa: !!c.company_id,
@@ -194,7 +200,9 @@ export default function CheckOutPage() {
     }))
     setLines(built)
     setPaymentsList(payments ?? [])
-    setPaymentsMade((payments ?? []).reduce((sum, p) => sum + Number(p.amount), 0))
+    setPaymentsMade((payments ?? []).filter((p: any) => !p.paid_by_company).reduce((sum, p) => sum + Number(p.amount), 0))
+    setCompanyPaid((payments ?? []).filter((p: any) => p.paid_by_company).reduce((sum, p) => sum + Number(p.amount), 0))
+    setEmpresaPagou(false)
     setLoadingBreakdown(false)
   }
 
@@ -258,6 +266,7 @@ export default function CheckOutPage() {
   const totalPessoal = (isCredito ? 0 : roomTotal) + lineSum(false)
   const totalPaid = paymentsMade
   const saldoPessoal = totalPessoal - totalPaid
+  const empresaEmAberto = Math.max(0, totalEmpresa - companyPaid)
   const mostrarContaEmpresa = isCredito || totalEmpresa > 0
 
   async function registarConsumoFrigobar() {
@@ -323,6 +332,23 @@ export default function CheckOutPage() {
     const { error } = await supabase.from('stay_charges').delete().eq('id', chargeId)
     if (error) { alert('Erro ao remover: ' + error.message); return }
     setLines(prev => prev.filter(l => l.chargeId !== chargeId))
+  }
+
+  async function registarPagamentoEmpresa() {
+    if (!stay || empresaEmAberto <= 0) return
+    if (!confirm(`Confirmar que a empresa ${empresaName} PAGOU ${kz(empresaEmAberto)} agora (${methodLabel(empresaMethod, empresaMethod === 'tpa' ? empresaBank : null)})?`)) return
+    setSavingEmpresa(true)
+    const supabase = createClient()
+    const { data, error } = await supabase.from('payments').insert({
+      property_id: PROPERTY_ID, source_type: 'stay', source_id: stay.id,
+      amount: empresaEmAberto, method: empresaMethod,
+      bank_name: (empresaMethod === 'tpa' || empresaMethod === 'transferencia') ? empresaBank : null,
+      paid_by_company: true, recorded_by: staffId,
+    }).select().single()
+    if (error) { alert('Erro ao registar pagamento da empresa: ' + error.message); setSavingEmpresa(false); return }
+    setPaymentsList(prev => [data, ...prev])
+    setCompanyPaid(prev => prev + empresaEmAberto)
+    setSavingEmpresa(false)
   }
 
   async function liquidarSaldo() {
@@ -435,22 +461,27 @@ export default function CheckOutPage() {
       if (isCredito) row(roomLabel, kz(roomTotal))
       CAT_ORDER.forEach(c => { const v = lineSum(true, c); if (v > 0) row(catLabel[c], kz(v)) })
       y += 2
-      box('Valor a facturar à empresa', kz(totalEmpresa), [255, 237, 213], [180, 83, 9])
+      if (companyPaid > 0) {
+        paymentsList.filter(p => p.paid_by_company).forEach(p => {
+          row(`Pago pela empresa — ${methodLabel(p.method, p.bank_name)}`, kz(Number(p.amount)))
+        })
+      }
+      box(empresaEmAberto > 0 ? 'Valor a facturar à empresa' : 'Conta da empresa paga', kz(empresaEmAberto > 0 ? empresaEmAberto : totalEmpresa), empresaEmAberto > 0 ? [255, 237, 213] : [240, 253, 244], empresaEmAberto > 0 ? [180, 83, 9] : [21, 128, 61])
     }
 
     // Conta pessoal
     sectionTitle('Conta Pessoal do Hóspede')
     if (!isCredito) row(roomLabel, kz(roomTotal))
     CAT_ORDER.forEach(c => { const v = lineSum(false, c); if (v > 0) row(catLabel[c], kz(v)) })
-    if (totalPessoal === 0 && paymentsList.length === 0) {
+    if (totalPessoal === 0 && paymentsList.filter(p => !p.paid_by_company).length === 0) {
       row('Sem valores a cobrar ao hóspede', kz(0))
     } else {
       doc.setFont('helvetica', 'bold')
       row('Total da conta pessoal', kz(totalPessoal))
       doc.setFont('helvetica', 'normal')
-      if (paymentsList.length > 0) {
+      if (paymentsList.filter(p => !p.paid_by_company).length > 0) {
         y += 2
-        paymentsList.forEach(p => {
+        paymentsList.filter(p => !p.paid_by_company).forEach(p => {
           ensure()
           doc.setFontSize(9)
           doc.setTextColor(...gray)
@@ -497,10 +528,19 @@ export default function CheckOutPage() {
 
   async function finalizarHospedagem() {
     if (!stay) return
-    if (saldoPessoal > 0) {
-      const ok = confirm(`Ainda há um saldo pendente de ${kz(saldoPessoal)} na conta pessoal do hóspede.\n\nFinalizar mesmo assim?`)
-      if (!ok) return
-    }
+    const nomeHospede = `${stay.guests?.full_name ?? ''} ${stay.guests?.surname ?? ''}`.trim()
+    const resumo =
+      `Confirmar CHECK-OUT?\n\nHóspede: ${nomeHospede}\nQuarto: ${stay.rooms?.number ?? ''}\n` +
+      `Diárias: ${diarias}\n` +
+      (mostrarContaEmpresa
+        ? `\nEMPRESA (${empresaName}): total ${kz(totalEmpresa)}\n` +
+          (companyPaid > 0 ? `  Já paga pela empresa: ${kz(companyPaid)}\n` : '') +
+          (empresaEmAberto > 0 ? `  AINDA NÃO PAGA — fica a facturar: ${kz(empresaEmAberto)}\n` : '  Conta da empresa paga.\n')
+        : '') +
+      `\nHÓSPEDE: total ${kz(totalPessoal)}, já pago ${kz(totalPaid)}\n` +
+      (saldoPessoal > 0 ? `  SALDO PENDENTE: ${kz(saldoPessoal)}\n` : saldoPessoal < 0 ? `  PAGO A MAIS: ${kz(-saldoPessoal)}\n` : '  Saldo: 0 (tudo pago)\n') +
+      `\nO quarto passa para limpeza e a estadia fica encerrada.`
+    if (!confirm(resumo)) return
     setFinalizing(true)
     const supabase = createClient()
     const { error } = await supabase.from('stays').update({
@@ -508,7 +548,7 @@ export default function CheckOutPage() {
       status: 'finalizado',
       checked_out_verified_by: staffId,
       // valor ainda em aberto: o que o hóspede deve + o que fica por facturar à empresa
-      amount_due: Math.max(0, saldoPessoal) + totalEmpresa,
+      amount_due: Math.max(0, saldoPessoal) + empresaEmAberto,
     }).eq('id', stay.id)
     if (error) { alert('Erro ao finalizar check-out: ' + error.message); setFinalizing(false); return }
     // Quarto para limpeza
@@ -629,11 +669,60 @@ export default function CheckOutPage() {
                 )}
                 {catRows(true, [])}
                 <div className="flex justify-between pt-2 border-t border-brand-200 font-semibold">
-                  <span>Valor a facturar à empresa</span>
+                  <span>Total da conta da empresa</span>
                   <span className="text-brand-600 text-base">{kz(totalEmpresa)}</span>
+                </div>
+                {companyPaid > 0 && (
+                  <div className="flex justify-between text-green-700">
+                    <span>Já paga pela empresa</span>
+                    <span className="font-medium">{kz(companyPaid)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between font-semibold">
+                  <span>{empresaEmAberto > 0 ? 'Ainda por facturar / receber' : 'Conta da empresa paga'}</span>
+                  <span className={empresaEmAberto > 0 ? 'text-amber-700' : 'text-green-700'}>{kz(empresaEmAberto)}</span>
                 </div>
               </div>
               {manualDebits(true)}
+
+              {/* A empresa pagou agora? */}
+              {totalEmpresa > 0 && (
+                <div className="pt-3 border-t border-brand-200 space-y-2">
+                  <p className="text-xs font-semibold text-brand-700">Pagamento da empresa</p>
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => setEmpresaPagou(false)} disabled={empresaEmAberto <= 0}
+                      className={`flex-1 py-2 rounded-lg text-sm font-medium ${!empresaPagou && empresaEmAberto > 0 ? 'bg-amber-500 text-white' : 'bg-surface-muted text-ink-muted'}`}>
+                      A empresa ainda não pagou
+                    </button>
+                    <button type="button" onClick={() => setEmpresaPagou(true)} disabled={empresaEmAberto <= 0}
+                      className={`flex-1 py-2 rounded-lg text-sm font-medium ${empresaPagou && empresaEmAberto > 0 ? 'bg-green-600 text-white' : 'bg-surface-muted text-ink-muted'}`}>
+                      A empresa pagou agora
+                    </button>
+                  </div>
+                  {!empresaPagou && empresaEmAberto > 0 && (
+                    <p className="text-xs text-ink-light">A conta fica a crédito: {kz(empresaEmAberto)} por facturar à empresa. A estadia continua classificada como crédito.</p>
+                  )}
+                  {empresaPagou && empresaEmAberto > 0 && (
+                    <div className="space-y-2">
+                      <div className="flex gap-2">
+                        <select className="input flex-1" value={empresaMethod} onChange={e => setEmpresaMethod(e.target.value)}>
+                          <option value="transferencia">Transferência</option>
+                          <option value="tpa">TPA</option>
+                          <option value="numerario">Numerário</option>
+                        </select>
+                        {(empresaMethod === 'tpa' || empresaMethod === 'transferencia') && (
+                          <select className="input w-24" value={empresaBank} onChange={e => setEmpresaBank(e.target.value)}>
+                            {BANK_OPTIONS.map(b => <option key={b}>{b}</option>)}
+                          </select>
+                        )}
+                      </div>
+                      <button type="button" onClick={registarPagamentoEmpresa} disabled={savingEmpresa} className="btn-primary w-full py-2.5">
+                        {savingEmpresa ? 'A registar...' : `Registar pagamento da empresa — ${kz(empresaEmAberto)}`}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -716,10 +805,10 @@ export default function CheckOutPage() {
               <Wallet size={14}/> {isCredito ? 'Pagamentos do hóspede (conta pessoal)' : 'Pagamentos'}
             </h2>
             <div className="space-y-2 text-sm">
-              {paymentsList.length > 0 ? (
+              {paymentsList.filter(p => !p.paid_by_company).length > 0 ? (
                 <div className="space-y-1">
                   <p className="text-xs text-ink-light">Pagamentos registados:</p>
-                  {paymentsList.map((p, i) => (
+                  {paymentsList.filter(p => !p.paid_by_company).map((p, i) => (
                     <div key={i} className="flex justify-between text-xs pl-2">
                       <span className="text-ink-muted">
                         {new Date(p.paid_at).toLocaleDateString('pt-AO')} · {sourceLabel(p.source_type)} · {methodLabel(p.method, p.bank_name)}

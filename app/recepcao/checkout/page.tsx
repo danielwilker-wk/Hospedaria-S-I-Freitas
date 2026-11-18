@@ -174,8 +174,8 @@ export default function CheckOutPage() {
     const supabase = createClient()
     const [{ data: laundry }, { data: restaurant }, { data: bar }, { data: minibar }, { data: charges }, { data: payments }] = await Promise.all([
       supabase.from('laundry_records').select('value, company_id').eq('stay_id', s.id),
-      supabase.from('restaurant_sales').select('value, company_id, payment_method').eq('stay_id', s.id).eq('guest_type', 'hospede'),
-      supabase.from('bar_sales').select('company_id, payment_method, bar_sale_items(subtotal)').eq('stay_id', s.id).eq('guest_type', 'hospede'),
+      supabase.from('restaurant_sales').select('id, value, company_id, payment_method, created_at').eq('stay_id', s.id).eq('guest_type', 'hospede'),
+      supabase.from('bar_sales').select('id, company_id, payment_method, created_at, bar_sale_items(subtotal)').eq('stay_id', s.id).eq('guest_type', 'hospede'),
       supabase.from('minibar_consumptions').select('total, company_id').eq('stay_id', s.id),
       supabase.from('stay_charges').select('id, charge_type, description, amount, company_id, paid_now').eq('stay_id', s.id).order('created_at'),
       supabase.from('payments').select('amount, method, bank_name, source_type, paid_at, id, paid_by_company').eq('source_id', s.id).order('paid_at', { ascending: false }),
@@ -199,9 +199,24 @@ export default function CheckOutPage() {
       label: c.description,
     }))
     setLines(built)
-    setPaymentsList(payments ?? [])
-    setPaymentsMade((payments ?? []).filter((p: any) => !p.paid_by_company).reduce((sum, p) => sum + Number(p.amount), 0))
-    setCompanyPaid((payments ?? []).filter((p: any) => p.paid_by_company).reduce((sum, p) => sum + Number(p.amount), 0))
+    // Vendas pagas na hora geram um pagamento automático (restaurante/bar). Como a própria venda já
+    // não entra na conta (foi paga no balcão), esse pagamento também não pode abater a conta.
+    const vendasPagas: { tipo: string; valor: number; em: number }[] = [
+      ...(restaurant ?? []).filter((r: any) => r.payment_method).map((r: any) => ({ tipo: 'restaurant', valor: Number(r.value), em: new Date(r.created_at).getTime() })),
+      ...(bar ?? []).filter((b: any) => b.payment_method).map((b: any) => ({
+        tipo: 'bar', em: new Date(b.created_at).getTime(),
+        valor: (b.bar_sale_items ?? []).reduce((sum: number, it: any) => sum + Number(it.subtotal), 0),
+      })),
+    ]
+    const resto: any[] = [...(payments ?? [])]
+    vendasPagas.forEach(v => {
+      const i = resto.findIndex((p: any) => !p.paid_by_company && p.source_type === v.tipo
+        && Number(p.amount) === v.valor && Math.abs(new Date(p.paid_at).getTime() - v.em) < 5 * 60 * 1000)
+      if (i >= 0) resto.splice(i, 1)
+    })
+    setPaymentsList(resto)
+    setPaymentsMade(resto.filter((p: any) => !p.paid_by_company).reduce((sum, p) => sum + Number(p.amount), 0))
+    setCompanyPaid(resto.filter((p: any) => p.paid_by_company).reduce((sum, p) => sum + Number(p.amount), 0))
     setEmpresaPagou(false)
     setLoadingBreakdown(false)
   }

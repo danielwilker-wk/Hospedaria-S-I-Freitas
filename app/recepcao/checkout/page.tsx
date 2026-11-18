@@ -174,8 +174,8 @@ export default function CheckOutPage() {
     const supabase = createClient()
     const [{ data: laundry }, { data: restaurant }, { data: bar }, { data: minibar }, { data: charges }, { data: payments }] = await Promise.all([
       supabase.from('laundry_records').select('value, company_id').eq('stay_id', s.id),
-      supabase.from('restaurant_sales').select('id, value, company_id, payment_method, created_at').eq('stay_id', s.id).eq('guest_type', 'hospede'),
-      supabase.from('bar_sales').select('id, company_id, payment_method, created_at, bar_sale_items(subtotal)').eq('stay_id', s.id).eq('guest_type', 'hospede'),
+      supabase.from('restaurant_sales').select('id, value, company_id, payment_method, bank_name, created_at').eq('stay_id', s.id).eq('guest_type', 'hospede'),
+      supabase.from('bar_sales').select('id, company_id, payment_method, bank_name, created_at, bar_sale_items(subtotal)').eq('stay_id', s.id).eq('guest_type', 'hospede'),
       supabase.from('minibar_consumptions').select('total, company_id').eq('stay_id', s.id),
       supabase.from('stay_charges').select('id, charge_type, description, amount, company_id, paid_now').eq('stay_id', s.id).order('created_at'),
       supabase.from('payments').select('amount, method, bank_name, source_type, paid_at, id, paid_by_company').eq('source_id', s.id).order('paid_at', { ascending: false }),
@@ -183,9 +183,9 @@ export default function CheckOutPage() {
 
     const built: Line[] = []
     ;(laundry ?? []).forEach((r: any) => built.push({ cat: 'lavandaria', amount: Number(r.value), empresa: !!r.company_id }))
-    ;// Vendas já pagas na hora ("pago agora") não voltam a ser cobradas no check-out
-    ;(restaurant ?? []).filter((r: any) => !r.payment_method).forEach((r: any) => built.push({ cat: 'restaurante', amount: Number(r.value), empresa: !!r.company_id }))
-    ;(bar ?? []).filter((b: any) => !b.payment_method).forEach((b: any) => built.push({
+    ;// Todas as vendas entram no resumo da conta; as pagas na hora aparecem também como pagamentos (saldo 0)
+    ;(restaurant ?? []).forEach((r: any) => built.push({ cat: 'restaurante', amount: Number(r.value), empresa: !!r.company_id }))
+    ;(bar ?? []).forEach((b: any) => built.push({
       cat: 'bar',
       amount: (b.bar_sale_items ?? []).reduce((sum: number, it: any) => sum + Number(it.subtotal), 0),
       empresa: !!b.company_id,
@@ -199,24 +199,30 @@ export default function CheckOutPage() {
       label: c.description,
     }))
     setLines(built)
-    // Vendas pagas na hora geram um pagamento automático (restaurante/bar). Como a própria venda já
-    // não entra na conta (foi paga no balcão), esse pagamento também não pode abater a conta.
-    const vendasPagas: { tipo: string; valor: number; em: number }[] = [
-      ...(restaurant ?? []).filter((r: any) => r.payment_method).map((r: any) => ({ tipo: 'restaurant', valor: Number(r.value), em: new Date(r.created_at).getTime() })),
+    // Vendas pagas na hora: aparecem no resumo da conta E como pagamento. O POS já cria o pagamento
+    // automaticamente; nas vendas antigas sem pagamento criado, mostramos um pagamento equivalente.
+    const vendasPagas: any[] = [
+      ...(restaurant ?? []).filter((r: any) => r.payment_method).map((r: any) => ({
+        tipo: 'restaurant', id: r.id, valor: Number(r.value), em: new Date(r.created_at).getTime(), metodo: r.payment_method, banco: r.bank_name, quando: r.created_at,
+      })),
       ...(bar ?? []).filter((b: any) => b.payment_method).map((b: any) => ({
-        tipo: 'bar', em: new Date(b.created_at).getTime(),
+        tipo: 'bar', id: b.id, em: new Date(b.created_at).getTime(), metodo: b.payment_method, banco: b.bank_name, quando: b.created_at,
         valor: (b.bar_sale_items ?? []).reduce((sum: number, it: any) => sum + Number(it.subtotal), 0),
       })),
     ]
     const resto: any[] = [...(payments ?? [])]
+    const usados = new Set<string>()
+    const virtuais: any[] = []
     vendasPagas.forEach(v => {
-      const i = resto.findIndex((p: any) => !p.paid_by_company && p.source_type === v.tipo
+      const i = resto.findIndex((p: any) => !usados.has(p.id) && !p.paid_by_company && p.source_type === v.tipo
         && Number(p.amount) === v.valor && Math.abs(new Date(p.paid_at).getTime() - v.em) < 5 * 60 * 1000)
-      if (i >= 0) resto.splice(i, 1)
+      if (i >= 0) usados.add(resto[i].id)
+      else virtuais.push({ id: 'venda-' + v.id, amount: v.valor, method: v.metodo, bank_name: v.banco, source_type: v.tipo, paid_at: v.quando, paid_by_company: false, virtual: true })
     })
-    setPaymentsList(resto)
-    setPaymentsMade(resto.filter((p: any) => !p.paid_by_company).reduce((sum, p) => sum + Number(p.amount), 0))
-    setCompanyPaid(resto.filter((p: any) => p.paid_by_company).reduce((sum, p) => sum + Number(p.amount), 0))
+    const todos = [...virtuais, ...resto].sort((x, y) => new Date(y.paid_at).getTime() - new Date(x.paid_at).getTime())
+    setPaymentsList(todos)
+    setPaymentsMade(todos.filter((p: any) => !p.paid_by_company).reduce((sum, p) => sum + Number(p.amount), 0))
+    setCompanyPaid(todos.filter((p: any) => p.paid_by_company).reduce((sum, p) => sum + Number(p.amount), 0))
     setEmpresaPagou(false)
     setLoadingBreakdown(false)
   }
